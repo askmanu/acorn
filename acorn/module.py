@@ -1,0 +1,570 @@
+"""Core module class for Acorn."""
+
+import json
+import inspect
+from pathlib import Path
+from typing import Any
+from pydantic import BaseModel
+
+from acorn.exceptions import AcornError, ParseError, ToolConflictError
+from acorn.serialization import pydantic_to_xml
+from acorn.tool_schema import generate_tool_schema
+from acorn.llm import call_llm
+from acorn.types import Step, ToolCall, ToolResult
+
+
+class Module:
+    """Base class for LLM modules with structured I/O.
+
+    Class attributes (override in subclass):
+        model: Model identifier or config dict
+        temperature: Sampling temperature (0.0-1.0)
+        max_tokens: Maximum tokens to generate
+        max_steps: Maximum agentic steps (None = single-turn)
+
+        system_prompt: System prompt (str, Path, or method)
+        initial_input: Pydantic model for input schema
+        final_output: Pydantic model for output schema
+        tools: List of tool functions
+
+    Example:
+        >>> from pydantic import BaseModel
+        >>> class Summarizer(Module):
+        ...     class Input(BaseModel):
+        ...         text: str
+        ...     class Output(BaseModel):
+        ...         summary: str
+        ...     initial_input = Input
+        ...     final_output = Output
+        >>> summarizer = Summarizer()
+        >>> result = summarizer(text="Long text...")
+    """
+
+    # Default configuration
+    model: str | dict = "anthropic/claude-sonnet-4-5-20250514"
+    temperature: float = 0.7
+    max_tokens: int = 4096
+    max_steps: int | None = None  # None = single-turn mode
+
+    # Prompt and schema
+    system_prompt: str | Path = ""
+    initial_input: type[BaseModel] | None = None
+    final_output: type[BaseModel] | None = None
+
+    # Tools
+    tools: list = []
+
+    # XML configuration
+    xml_input_root: str = "input"
+    xml_output_root: str = "output"
+
+    # Parse retry configuration
+    max_parse_retries: int = 2
+
+    def __init__(self):
+        """Initialize the module."""
+        # Collect all tools
+        self._collected_tools = self._collect_all_tools()
+
+        # Check for tool name conflicts
+        self._check_tool_conflicts()
+
+        # History for multi-turn (will be used in Phase 6)
+        self.history = []
+
+    def __call__(self, **kwargs) -> BaseModel:
+        """Execute the module with provided inputs.
+
+        Args:
+            **kwargs: Input fields matching initial_input schema
+
+        Returns:
+            Instance of final_output model
+
+        Raises:
+            AcornError: If execution fails
+            ParseError: If output validation fails
+        """
+        if self.max_steps is None:
+            return self._single_turn(**kwargs)
+        else:
+            return self._agentic_loop(**kwargs)
+
+    def _single_turn(self, **kwargs) -> BaseModel:
+        """Execute a single-turn module call.
+
+        Args:
+            **kwargs: Input fields
+
+        Returns:
+            Validated output model
+        """
+        # 1. Validate input
+        if self.initial_input:
+            input_model = self.initial_input(**kwargs)
+        else:
+            input_model = None
+
+        # 2. Build system message
+        system_message = self._build_system_message()
+
+        # 3. Build user message with XML input
+        if input_model:
+            input_xml = pydantic_to_xml(
+                input_model,
+                root_tag=self.xml_input_root,
+                include_descriptions=True
+            )
+            user_message = {"role": "user", "content": input_xml}
+        else:
+            # No initial_input schema
+            user_message = {"role": "user", "content": str(kwargs)}
+
+        messages = [system_message, user_message]
+
+        # Initialize history
+        self.history = messages.copy()
+
+        # 4. Collect tools and add __finish__
+        tools_list = self._collected_tools.copy()
+        finish_tool = self._generate_finish_tool()
+        tools_list.append(finish_tool)
+
+        # Generate tool schemas
+        tool_schemas = [self._get_tool_schema(t) for t in tools_list]
+
+        # 5. Call LLM
+        response = call_llm(
+            messages=messages,
+            model=self.model,
+            tools=tool_schemas,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+
+        # Add assistant response to history
+        assistant_message = {
+            "role": "assistant",
+            "content": response.get("content"),
+        }
+        if response.get("tool_calls"):
+            assistant_message["tool_calls"] = response["tool_calls"]
+        self.history.append(assistant_message)
+
+        # 6. Handle response
+        if not response.get("tool_calls"):
+            raise AcornError("No tool called in single-turn mode")
+
+        tool_call = response["tool_calls"][0]
+
+        if tool_call["function"]["name"] != "__finish__":
+            raise AcornError(
+                f"Non-finish tool called in single-turn mode: {tool_call['function']['name']}"
+            )
+
+        # 7. Validate __finish__ arguments (with retries)
+        return self._validate_and_retry(
+            messages,
+            tool_schemas,
+            tool_call,
+            attempt=0
+        )
+
+    def _agentic_loop(self, **kwargs) -> BaseModel:
+        """Execute multi-turn agentic loop with tool calls.
+
+        Args:
+            **kwargs: Input fields
+
+        Returns:
+            Validated output model
+        """
+        # 1. Validate input
+        if self.initial_input:
+            input_model = self.initial_input(**kwargs)
+        else:
+            input_model = None
+
+        # 2. Build system message
+        system_message = self._build_system_message()
+
+        # 3. Build initial user message
+        if input_model:
+            input_xml = pydantic_to_xml(
+                input_model,
+                root_tag=self.xml_input_root,
+                include_descriptions=True
+            )
+            user_message = {"role": "user", "content": input_xml}
+        else:
+            user_message = {"role": "user", "content": str(kwargs)}
+
+        # Initialize history
+        self.history = [system_message, user_message]
+
+        # 4. Collect tools and add __finish__
+        current_tools = self._collected_tools.copy()
+        finish_tool = self._generate_finish_tool()
+        current_tools.append(finish_tool)
+
+        # Loop state
+        step_count = 0
+
+        while step_count < self.max_steps:
+            step_count += 1
+
+            # Generate tool schemas
+            tool_schemas = [self._get_tool_schema(t) for t in current_tools]
+
+            # Call LLM
+            response = call_llm(
+                messages=self.history,
+                model=self.model,
+                tools=tool_schemas,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+
+            # Add assistant message to history
+            assistant_message = {
+                "role": "assistant",
+                "content": response.get("content"),
+            }
+
+            # Add tool calls to assistant message if present
+            if response.get("tool_calls"):
+                assistant_message["tool_calls"] = response["tool_calls"]
+
+            self.history.append(assistant_message)
+
+            # Get tool calls
+            tool_calls = response.get("tool_calls", [])
+
+            if not tool_calls:
+                # No tool calls - this is an error in agentic mode
+                raise AcornError("No tool calls in agentic loop step")
+
+            # Process tool calls
+            tool_call_objs = []
+            tool_result_objs = []
+
+            for tc in tool_calls:
+                tool_name = tc["function"]["name"]
+
+                # Check if it's __finish__
+                if tool_name == "__finish__":
+                    # Validate and return
+                    try:
+                        arguments = json.loads(tc["function"]["arguments"])
+                        result = self.final_output(**arguments)
+                        return result
+                    except Exception as e:
+                        # Validation failed - add error and continue loop
+                        error_msg = {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": f"Error: Output validation failed: {e}\nPlease call __finish__ again with valid arguments."
+                        }
+                        self.history.append(error_msg)
+                        continue
+
+                # Execute regular tool
+                tool_call_obj = ToolCall(
+                    id=tc["id"],
+                    name=tool_name,
+                    arguments=json.loads(tc["function"]["arguments"])
+                )
+                tool_call_objs.append(tool_call_obj)
+
+                # Find and execute tool
+                tool_result = self._execute_tool(tool_call_obj, current_tools)
+                tool_result_objs.append(tool_result)
+
+                # Add tool result to history
+                result_msg = {
+                    "role": "tool",
+                    "tool_call_id": tool_result.id,
+                    "content": str(tool_result.output) if tool_result.error is None else f"Error: {tool_result.error}"
+                }
+                self.history.append(result_msg)
+
+            # Build Step object
+            step = Step(
+                counter=step_count,
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                tools=current_tools.copy(),
+                response=response,
+                tool_calls=tool_call_objs,
+                tool_results=tool_result_objs,
+            )
+
+            # Call on_step callback if defined
+            if hasattr(self, 'on_step') and callable(self.on_step):
+                step = self.on_step(step)
+
+                # Check if step.finish() was called
+                if step._finished:
+                    try:
+                        result = self.final_output(**step._finish_kwargs)
+                        return result
+                    except Exception as e:
+                        raise ParseError(
+                            f"Failed to validate output from step.finish(): {e}",
+                            raw_output=step._finish_kwargs
+                        )
+
+                # Apply step mutations
+                for tool_to_add in step._tools_to_add:
+                    if tool_to_add not in current_tools:
+                        current_tools.append(tool_to_add)
+
+                for tool_name_to_remove in step._tools_to_remove:
+                    current_tools = [t for t in current_tools if t.__name__ != tool_name_to_remove]
+
+        # Max steps reached - force termination
+        raise AcornError(f"Max steps ({self.max_steps}) reached without calling __finish__")
+
+    def _execute_tool(self, tool_call: ToolCall, tools: list) -> ToolResult:
+        """Execute a tool and return the result.
+
+        Args:
+            tool_call: ToolCall object with tool name and arguments
+            tools: List of available tools
+
+        Returns:
+            ToolResult object
+        """
+        # Find the tool
+        tool_func = None
+        for t in tools:
+            if t.__name__ == tool_call.name:
+                tool_func = t
+                break
+
+        if tool_func is None:
+            return ToolResult(
+                id=tool_call.id,
+                name=tool_call.name,
+                output=None,
+                error=f"Tool '{tool_call.name}' not found"
+            )
+
+        # Execute the tool
+        try:
+            result = tool_func(**tool_call.arguments)
+            return ToolResult(
+                id=tool_call.id,
+                name=tool_call.name,
+                output=result,
+                error=None
+            )
+        except Exception as e:
+            return ToolResult(
+                id=tool_call.id,
+                name=tool_call.name,
+                output=None,
+                error=str(e)
+            )
+
+    def _build_system_message(self) -> dict:
+        """Build the system message from system_prompt.
+
+        Returns:
+            System message dictionary
+        """
+        # Determine system prompt source
+        if isinstance(self.system_prompt, Path):
+            # Load from file
+            prompt_text = self.system_prompt.read_text()
+        elif isinstance(self.system_prompt, str) and self.system_prompt:
+            # Use string directly
+            prompt_text = self.system_prompt
+        elif callable(getattr(self.__class__, 'system_prompt', None)):
+            # Call class method
+            prompt_text = self.system_prompt()
+        elif self.__doc__:
+            # Use class docstring
+            prompt_text = self.__doc__
+        else:
+            # No system prompt
+            prompt_text = ""
+
+        return {"role": "system", "content": prompt_text}
+
+    def _validate_and_retry(
+        self,
+        messages: list[dict],
+        tool_schemas: list[dict],
+        tool_call: dict,
+        attempt: int
+    ) -> BaseModel:
+        """Validate __finish__ output with retry logic.
+
+        Args:
+            messages: Message history
+            tool_schemas: Available tool schemas
+            tool_call: The __finish__ tool call to validate
+            attempt: Current retry attempt number
+
+        Returns:
+            Validated output model
+
+        Raises:
+            ParseError: If validation fails after all retries
+        """
+        try:
+            arguments = json.loads(tool_call["function"]["arguments"])
+            result = self.final_output(**arguments)
+            return result
+        except Exception as e:
+            # Validation failed
+            if attempt >= self.max_parse_retries:
+                # Out of retries
+                raise ParseError(
+                    f"Failed to validate output after {attempt} retries: {e}",
+                    raw_output=tool_call["function"]["arguments"]
+                )
+
+            # Add error message and retry
+            error_msg = {
+                "role": "user",
+                "content": f"Error: Output validation failed: {e}\n\nPlease call __finish__ again with valid arguments matching the schema."
+            }
+            retry_messages = messages + [
+                {"role": "assistant", "content": tool_call["function"]["name"]},
+                error_msg
+            ]
+
+            # Retry LLM call
+            response = call_llm(
+                messages=retry_messages,
+                model=self.model,
+                tools=tool_schemas,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+
+            if not response.get("tool_calls"):
+                raise ParseError(
+                    f"No tool called in retry attempt {attempt + 1}",
+                    raw_output=None
+                )
+
+            retry_tool_call = response["tool_calls"][0]
+
+            if retry_tool_call["function"]["name"] != "__finish__":
+                raise ParseError(
+                    f"Wrong tool called in retry: {retry_tool_call['function']['name']}",
+                    raw_output=None
+                )
+
+            # Recursive retry
+            return self._validate_and_retry(
+                retry_messages,
+                tool_schemas,
+                retry_tool_call,
+                attempt + 1
+            )
+
+    def _collect_all_tools(self) -> list:
+        """Collect tools from tools attribute and @tool decorated methods.
+
+        Returns:
+            List of tool functions
+        """
+        collected = []
+
+        # Add from tools attribute
+        collected.extend(self.tools)
+
+        # Add from @tool decorated methods
+        for name in dir(self):
+            # Skip private/magic methods
+            if name.startswith("_"):
+                continue
+
+            attr = getattr(self, name)
+
+            # Check if it's a tool-decorated function/method
+            if callable(attr) and hasattr(attr, "_tool_schema"):
+                collected.append(attr)
+
+        return collected
+
+    def _check_tool_conflicts(self):
+        """Check for tool name conflicts.
+
+        Raises:
+            ToolConflictError: If duplicate tool names found
+        """
+        names = set()
+
+        for tool in self._collected_tools:
+            name = tool.__name__
+            if name in names:
+                raise ToolConflictError(f"Duplicate tool name: {name}")
+            names.add(name)
+
+    def _generate_finish_tool(self) -> dict:
+        """Generate the __finish__ tool from final_output schema.
+
+        Returns:
+            Tool schema dictionary for __finish__
+        """
+        if not self.final_output:
+            raise AcornError("final_output must be defined")
+
+        # Build parameters from final_output model fields
+        parameters = {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+
+        for field_name, field_info in self.final_output.model_fields.items():
+            # Convert field type to JSON schema
+            field_schema = {"type": "string"}  # Simplified for now
+
+            # Add description if available
+            if field_info.description:
+                field_schema["description"] = field_info.description
+
+            parameters["properties"][field_name] = field_schema
+
+            # Add to required if not optional
+            if field_info.is_required():
+                parameters["required"].append(field_name)
+
+        # Create __finish__ tool schema
+        finish_schema = {
+            "type": "function",
+            "function": {
+                "name": "__finish__",
+                "description": "Call this function when you have the final output ready.",
+                "parameters": parameters
+            }
+        }
+
+        # Return a callable that has this schema
+        def __finish__(**kwargs):
+            return kwargs
+
+        __finish__._tool_schema = finish_schema
+        return __finish__
+
+    def _get_tool_schema(self, tool: Any) -> dict:
+        """Get the schema for a tool.
+
+        Args:
+            tool: Tool function or callable
+
+        Returns:
+            Tool schema dictionary
+        """
+        if hasattr(tool, "_tool_schema"):
+            return tool._tool_schema
+        else:
+            # Generate schema on the fly
+            return generate_tool_schema(tool)
