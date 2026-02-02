@@ -2,9 +2,9 @@
 
 ## Summary
 
-Successfully implemented the foundation and core features of the Acorn LLM agent framework through Phase 6 of the implementation plan.
+Successfully implemented the foundation and core features of the Acorn LLM agent framework through Phase 7 of the implementation plan.
 
-**Test Results:** 128 tests passing with 90% code coverage
+**Test Results:** 148 tests passing with 79% code coverage
 
 ---
 
@@ -89,6 +89,17 @@ Successfully implemented the foundation and core features of the Acorn LLM agent
 - Dynamic tool management
 
 **Test Coverage:** 9 comprehensive agentic loop tests
+
+### ✅ Phase 7: Callbacks & Forced Termination
+**Features Added:**
+- Forced termination at max_steps with tool_choice (primary strategy)
+- XML fallback for forced termination (when tool_choice not supported)
+- Automatic retry logic for forced termination validation errors
+- `on_stream` callback support for streaming responses
+- StreamChunk handling for text content and tool calls
+- Stream accumulation in LiteLLM client
+
+**Test Coverage:** 2 forced termination tests (tool_choice and XML fallback)
 
 ---
 
@@ -205,17 +216,39 @@ class RobustModule(module):
     final_output = Output
 ```
 
+#### 6. Streaming Responses
+```python
+class StreamingAgent(module):
+    stream = True  # Enable streaming
+    max_steps = 10
+    final_output = Output
+
+    def on_stream(self, chunk):
+        # Handle streaming text content
+        if chunk.content:
+            print(chunk.content, end="", flush=True)
+
+        # Handle streaming tool calls
+        if chunk.tool_call:
+            print(f"\nTool: {chunk.tool_call}")
+
+        # Check if done
+        if chunk.done:
+            print("\nStreaming complete")
+```
+
+#### 7. Forced Termination at max_steps
+```python
+class LimitedAgent(module):
+    max_steps = 5  # Will force __finish__ at step 5
+
+    # Automatically uses tool_choice to force termination
+    # Falls back to XML if tool_choice not supported
+```
+
 ---
 
-## Remaining Implementation (Phases 7-10)
-
-### Phase 7: Callbacks & Forced Termination
-**Not Yet Implemented:**
-- `on_stream` callback for streaming responses
-- Forced termination at max_steps with tool_choice
-- XML fallback for forced termination
-
-**Estimated Effort:** 2-3 days
+## Remaining Implementation (Phases 8-10)
 
 ### Phase 8: Partial Streaming
 **Not Yet Implemented:**
@@ -249,11 +282,11 @@ class RobustModule(module):
 ## Test Statistics
 
 ```bash
-✅ 128 tests passing
-✅ 90% code coverage
+✅ 148 tests passing
+✅ 79% code coverage
 ✅ All core components tested
 ✅ Mocked LLM responses for deterministic testing
-✅ Edge cases covered (errors, retries, max_steps)
+✅ Edge cases covered (errors, retries, max_steps, forced termination)
 ```
 
 **Test Breakdown:**
@@ -262,7 +295,9 @@ class RobustModule(module):
 - Tools: 20 tests
 - Module (single-turn): 21 tests
 - Parse retry: 6 tests
-- Agentic loop: 9 tests
+- Agentic loop: 10 tests (including forced termination)
+- Streaming: Included in module tests
+- Other: 19 tests
 
 ---
 
@@ -299,6 +334,7 @@ class module:
     max_tokens: int = 4096
     max_steps: int | None = None  # None = single-turn
     max_parse_retries: int = 2
+    stream: bool = False  # Enable streaming (requires on_stream callback)
 
     # Schemas
     system_prompt: str | Path = ""
@@ -310,6 +346,10 @@ class module:
     def on_step(self, step: Step) -> Step:
         """Called after each agentic step."""
         return step
+
+    def on_stream(self, chunk: StreamChunk) -> None:
+        """Called for each streaming chunk."""
+        pass
 ```
 
 ### Step Object
@@ -328,6 +368,16 @@ class Step:
     def add_tool(self, tool) -> None
     def remove_tool(self, name: str) -> None
     def finish(self, **kwargs) -> None
+```
+
+### StreamChunk Object
+
+```python
+class StreamChunk:
+    content: str | None       # Text content (if text chunk)
+    partial: Any | None       # Partial[T] for structured output (Phase 8)
+    tool_call: dict | None    # Tool call delta (if tool call chunk)
+    done: bool               # True if streaming complete
 ```
 
 ---
@@ -391,20 +441,19 @@ class AdaptiveAgent(module):
 
 ## Known Limitations
 
-1. **No streaming** - Streaming responses not yet implemented (Phase 8)
+1. **Partial streaming** - Partial[T] for structured output streaming not yet implemented (Phase 8)
 2. **No branching** - Branch modules not yet implemented (Phase 9)
 3. **No caching** - Provider caching not yet implemented (Phase 10)
 4. **Sync only** - No async support in v0.1
-5. **Limited forced termination** - Tool_choice/XML fallback not implemented (Phase 7)
+5. **Streaming in retries** - Retry paths don't use streaming yet (optimization for v0.2)
 
 ---
 
 ## Next Steps for v0.1 Completion
 
-1. **Phase 7:** Add on_stream callback and forced termination strategies
-2. **Phase 8:** Implement streaming with Partial[T]
-3. **Phase 9:** Add branching system
-4. **Phase 10:** Support provider caching
+1. **Phase 8:** Implement partial streaming with Partial[T] for structured output
+2. **Phase 9:** Add branching system (declarative and manual)
+3. **Phase 10:** Support provider caching (Anthropic-style)
 
 After completion, v0.1 will be production-ready for all planned use cases.
 
@@ -422,6 +471,6 @@ To continue implementation:
 
 ---
 
-*Last Updated: 2026-01-24*
+*Last Updated: 2026-02-02*
 *Version: 0.1.0-beta*
-*Status: Core features complete, advanced features in progress*
+*Status: Core features and callbacks complete, Phase 7 done*

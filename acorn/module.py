@@ -68,6 +68,9 @@ class Module:
     # Parse retry configuration
     max_parse_retries: int = 2
 
+    # Streaming configuration
+    stream: bool = False  # Enable streaming (requires on_stream callback)
+
     def __init__(self):
         """Initialize the module."""
         # Validate model configuration
@@ -169,12 +172,15 @@ class Module:
         tool_schemas = [self._get_tool_schema(t) for t in tools_list]
 
         # 5. Call LLM
+        on_stream_callback = self.on_stream if (self.stream and hasattr(self, 'on_stream')) else None
         response = call_llm(
             messages=messages,
             model=self.model,
             tools=tool_schemas,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            stream=self.stream,
+            on_stream=on_stream_callback,
         )
 
         # Add assistant response to history
@@ -252,12 +258,15 @@ class Module:
             tool_schemas = [self._get_tool_schema(t) for t in current_tools]
 
             # Call LLM
+            on_stream_callback = self.on_stream if (self.stream and hasattr(self, 'on_stream')) else None
             response = call_llm(
                 messages=self.history,
                 model=self.model,
                 tools=tool_schemas,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                stream=self.stream,
+                on_stream=on_stream_callback,
             )
 
             # Add assistant message to history
@@ -358,8 +367,8 @@ class Module:
                 for tool_name_to_remove in step._tools_to_remove:
                     current_tools = [t for t in current_tools if t.__name__ != tool_name_to_remove]
 
-        # Max steps reached - force termination
-        raise AcornError(f"Max steps ({self.max_steps}) reached without calling __finish__")
+        # Max steps reached - force termination with __finish__
+        return self._force_termination()
 
     def _execute_tool(self, tool_call: ToolCall, tools: list) -> ToolResult:
         """Execute a tool and return the result.
@@ -603,3 +612,277 @@ class Module:
         else:
             # Generate schema on the fly
             return generate_tool_schema(tool)
+
+    def _force_termination(self) -> BaseModel:
+        """Force termination at max_steps by requiring __finish__ call.
+
+        Primary strategy: Use tool_choice to force __finish__ (preserves cache)
+        Fallback strategy: Append XML instruction if tool_choice fails
+
+        Returns:
+            Validated output model
+
+        Raises:
+            ParseError: If forced output fails validation after all retries
+        """
+        # Collect current tools and generate schemas
+        current_tools = self._collected_tools.copy()
+        finish_tool = self._generate_finish_tool()
+        current_tools.append(finish_tool)
+        tool_schemas = [self._get_tool_schema(t) for t in current_tools]
+
+        # Try tool_choice first (preserves prompt caching)
+        try:
+            response = call_llm(
+                messages=self.history,
+                model=self.model,
+                tools=tool_schemas,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                tool_choice={"type": "function", "function": {"name": "__finish__"}}
+            )
+
+            # Process the response
+            if response.get("tool_calls"):
+                tool_call = response["tool_calls"][0]
+                if tool_call["function"]["name"] == "__finish__":
+                    # Validate and return (with retry support)
+                    try:
+                        arguments = json.loads(tool_call["function"]["arguments"])
+                        result = self.final_output(**arguments)
+                        return result
+                    except Exception as e:
+                        # Validation failed - use retry mechanism
+                        return self._retry_forced_finish(
+                            tool_schemas,
+                            tool_call,
+                            attempt=0,
+                            error=e
+                        )
+
+        except Exception as e:
+            # tool_choice not supported or failed - fall back to XML
+            return self._force_termination_xml()
+
+        # No tool call or wrong tool - fall back to XML
+        return self._force_termination_xml()
+
+    def _retry_forced_finish(
+        self,
+        tool_schemas: list[dict],
+        tool_call: dict,
+        attempt: int,
+        error: Exception
+    ) -> BaseModel:
+        """Retry forced finish after validation failure.
+
+        Args:
+            tool_schemas: Available tool schemas
+            tool_call: The failed __finish__ tool call
+            attempt: Current retry attempt number
+            error: The validation error
+
+        Returns:
+            Validated output model
+
+        Raises:
+            ParseError: If validation fails after all retries
+        """
+        if attempt >= self.max_parse_retries:
+            # Out of retries
+            raise ParseError(
+                f"Failed to validate forced output after {attempt} retries: {error}",
+                raw_output=tool_call["function"]["arguments"]
+            )
+
+        # Add error message and retry
+        error_msg = {
+            "role": "user",
+            "content": f"Error: Output validation failed: {error}\n\nPlease call __finish__ again with valid arguments matching the schema."
+        }
+
+        # Add assistant message and error to history
+        retry_history = self.history + [
+            {"role": "assistant", "tool_calls": [tool_call]},
+            {"role": "tool", "tool_call_id": tool_call["id"], "content": error_msg["content"]}
+        ]
+
+        # Retry with tool_choice
+        response = call_llm(
+            messages=retry_history,
+            model=self.model,
+            tools=tool_schemas,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            tool_choice={"type": "function", "function": {"name": "__finish__"}}
+        )
+
+        if not response.get("tool_calls"):
+            raise ParseError(
+                f"No tool called in forced termination retry {attempt + 1}",
+                raw_output=None
+            )
+
+        retry_tool_call = response["tool_calls"][0]
+
+        if retry_tool_call["function"]["name"] != "__finish__":
+            raise ParseError(
+                f"Wrong tool called in forced termination retry: {retry_tool_call['function']['name']}",
+                raw_output=None
+            )
+
+        # Try to validate again
+        try:
+            arguments = json.loads(retry_tool_call["function"]["arguments"])
+            result = self.final_output(**arguments)
+            return result
+        except Exception as e:
+            # Recursive retry
+            return self._retry_forced_finish(
+                tool_schemas,
+                retry_tool_call,
+                attempt + 1,
+                error=e
+            )
+
+    def _force_termination_xml(self) -> BaseModel:
+        """Force termination using XML fallback (when tool_choice not supported).
+
+        Appends XML instruction to history and parses XML response.
+
+        Returns:
+            Validated output model
+
+        Raises:
+            ParseError: If XML parsing or validation fails
+        """
+        from acorn.serialization import xml_to_pydantic
+
+        # Build XML template with field descriptions as attributes
+        xml_template_lines = [f"<{self.xml_output_root}>"]
+
+        for field_name, field_info in self.final_output.model_fields.items():
+            desc_attr = ""
+            if field_info.description:
+                # Escape quotes in description
+                escaped_desc = field_info.description.replace('"', '&quot;')
+                desc_attr = f' description="{escaped_desc}"'
+
+            xml_template_lines.append(f"    <{field_name}{desc_attr}></{field_name}>")
+
+        xml_template_lines.append(f"</{self.xml_output_root}>")
+        xml_template = "\n".join(xml_template_lines)
+
+        # Append instruction to history
+        instruction = (
+            f"You must provide your final answer now. "
+            f"Respond with your answer in the following XML structure:\n\n"
+            f"{xml_template}\n\n"
+            f"Fill in the values. Do not repeat the descriptions."
+        )
+
+        forced_history = self.history + [
+            {"role": "user", "content": instruction}
+        ]
+
+        # Call LLM without tools (text-only response)
+        response = call_llm(
+            messages=forced_history,
+            model=self.model,
+            tools=None,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+
+        # Parse XML from response content
+        content = response.get("content", "")
+
+        if not content:
+            raise ParseError(
+                "Empty response in XML forced termination",
+                raw_output=content
+            )
+
+        try:
+            # Parse XML to Pydantic model
+            result = xml_to_pydantic(content, self.final_output)
+            return result
+        except Exception as e:
+            # Try retry mechanism
+            return self._retry_xml_forced_finish(
+                forced_history,
+                content,
+                attempt=0,
+                error=e
+            )
+
+    def _retry_xml_forced_finish(
+        self,
+        history: list[dict],
+        failed_output: str,
+        attempt: int,
+        error: Exception
+    ) -> BaseModel:
+        """Retry XML forced finish after parsing/validation failure.
+
+        Args:
+            history: Message history with XML instruction
+            failed_output: The failed XML output
+            attempt: Current retry attempt number
+            error: The parsing/validation error
+
+        Returns:
+            Validated output model
+
+        Raises:
+            ParseError: If validation fails after all retries
+        """
+        from acorn.serialization import xml_to_pydantic
+
+        if attempt >= self.max_parse_retries:
+            # Out of retries
+            raise ParseError(
+                f"Failed to parse/validate XML forced output after {attempt} retries: {error}",
+                raw_output=failed_output
+            )
+
+        # Add error message and retry
+        error_msg = {
+            "role": "user",
+            "content": f"Error: Output parsing/validation failed: {error}\n\nPlease provide the XML output again with valid values."
+        }
+
+        retry_history = history + [
+            {"role": "assistant", "content": failed_output},
+            error_msg
+        ]
+
+        # Retry LLM call
+        response = call_llm(
+            messages=retry_history,
+            model=self.model,
+            tools=None,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+
+        content = response.get("content", "")
+
+        if not content:
+            raise ParseError(
+                f"Empty response in XML forced termination retry {attempt + 1}",
+                raw_output=content
+            )
+
+        try:
+            # Parse XML to Pydantic model
+            result = xml_to_pydantic(content, self.final_output)
+            return result
+        except Exception as e:
+            # Recursive retry
+            return self._retry_xml_forced_finish(
+                retry_history,
+                content,
+                attempt + 1,
+                error=e
+            )

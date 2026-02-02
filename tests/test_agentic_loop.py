@@ -154,8 +154,8 @@ def test_agentic_loop_tool_error():
         assert "Tool error" in tool_messages[0]["content"]
 
 
-def test_agentic_loop_max_steps():
-    """Test that max_steps limit is enforced."""
+def test_agentic_loop_max_steps_forced_termination_tool_choice():
+    """Test forced termination at max_steps using tool_choice."""
     @tool
     def endless_tool() -> str:
         """A tool that keeps running."""
@@ -170,17 +170,76 @@ def test_agentic_loop_max_steps():
         final_output = Output
 
     with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
-        # Always call endless_tool, never __finish__
-        endless_call = create_tool_call("endless_tool", {}, "call_x")
-        mock_completion.return_value = MockResponse(tool_calls=[endless_call])
+        # First 2 steps: call endless_tool
+        endless_call = create_tool_call("endless_tool", {}, "call_1")
+
+        # Final step (forced): call __finish__
+        finish_call = create_tool_call("__finish__", {"result": "forced output"}, "call_finish")
+
+        # Mock responses: first 2 are endless, 3rd is forced __finish__
+        mock_completion.side_effect = [
+            MockResponse(tool_calls=[endless_call]),
+            MockResponse(tool_calls=[endless_call]),
+            MockResponse(tool_calls=[finish_call])  # Forced termination
+        ]
 
         mod = EndlessModule()
+        result = mod()
 
-        with pytest.raises(AcornError, match="Max steps \\(2\\) reached"):
-            mod()
+        # Should have forced termination
+        assert result.result == "forced output"
+        # Called max_steps + 1 (for forced termination)
+        assert mock_completion.call_count == 3
 
-        # Should have been called exactly max_steps times
-        assert mock_completion.call_count == 2
+        # Check that tool_choice was used in the last call
+        last_call_kwargs = mock_completion.call_args_list[2].kwargs
+        assert "tool_choice" in last_call_kwargs
+        assert last_call_kwargs["tool_choice"]["function"]["name"] == "__finish__"
+
+
+def test_agentic_loop_max_steps_forced_termination_xml_fallback():
+    """Test forced termination falls back to XML when tool_choice fails."""
+    @tool
+    def endless_tool() -> str:
+        """A tool that keeps running."""
+        return "continue"
+
+    class Output(BaseModel):
+        result: str
+
+    class EndlessModule(Module):
+        max_steps = 2
+        tools = [endless_tool]
+        final_output = Output
+
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        # First 2 steps: call endless_tool
+        endless_call = create_tool_call("endless_tool", {}, "call_1")
+
+        # Mock responses
+        def mock_side_effect(*args, **kwargs):
+            # If tool_choice is present, simulate tool_choice not supported
+            if "tool_choice" in kwargs:
+                raise Exception("tool_choice not supported")
+
+            # If no tools (XML fallback), return XML content
+            if not kwargs.get("tools"):
+                xml_response = MockResponse(content="<output><result>xml forced output</result></output>")
+                xml_response.choices[0].message.tool_calls = []  # No tool calls
+                return xml_response
+
+            # Normal tool call
+            return MockResponse(tool_calls=[endless_call])
+
+        mock_completion.side_effect = mock_side_effect
+
+        mod = EndlessModule()
+        result = mod()
+
+        # Should have forced termination via XML
+        assert result.result == "xml forced output"
+        # Called: 2 for steps, 1 failed tool_choice, 1 XML fallback = 4
+        assert mock_completion.call_count == 4
 
 
 def test_agentic_loop_history_accumulates():
