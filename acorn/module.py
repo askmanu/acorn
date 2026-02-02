@@ -17,7 +17,14 @@ class Module:
     """Base class for LLM modules with structured I/O.
 
     Class attributes (override in subclass):
-        model: Model identifier or config dict
+        model: Model identifier (string) or config dict
+               String: model name (e.g., "anthropic/claude-sonnet-4-5-20250514")
+               Dict: {
+                   "id": "model-name",  # required
+                   "vertex_location": "...",  # optional
+                   "vertex_credentials": "...",  # optional
+                   "reasoning": True | "low" | "medium" | "high"  # optional
+               }
         temperature: Sampling temperature (0.0-1.0)
         max_tokens: Maximum tokens to generate
         max_steps: Maximum agentic steps (None = single-turn)
@@ -63,6 +70,9 @@ class Module:
 
     def __init__(self):
         """Initialize the module."""
+        # Validate model configuration
+        self._validate_model_config()
+
         # Collect all tools
         self._collected_tools = self._collect_all_tools()
 
@@ -71,6 +81,31 @@ class Module:
 
         # History for multi-turn (will be used in Phase 6)
         self.history = []
+
+    def _validate_model_config(self):
+        """Validate model configuration.
+
+        Raises:
+            ValueError: If model config is invalid
+        """
+        if isinstance(self.model, dict):
+            # Validate required keys
+            if "id" not in self.model:
+                raise ValueError("Model dict must contain 'id' key")
+
+            # Validate allowed keys
+            allowed_keys = {"id", "vertex_location", "vertex_credentials", "reasoning"}
+            invalid_keys = set(self.model.keys()) - allowed_keys
+            if invalid_keys:
+                raise ValueError(f"Invalid model config keys: {invalid_keys}. Allowed: {allowed_keys}")
+
+            # Validate reasoning parameter
+            if "reasoning" in self.model:
+                reasoning = self.model["reasoning"]
+                if reasoning is not True and reasoning not in ["low", "medium", "high"]:
+                    raise ValueError(
+                        f"reasoning must be True or one of 'low', 'medium', 'high', got: {reasoning}"
+                    )
 
     def __call__(self, **kwargs) -> BaseModel:
         """Execute the module with provided inputs.

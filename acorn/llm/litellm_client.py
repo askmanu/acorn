@@ -16,7 +16,11 @@ def call_llm(
 
     Args:
         messages: List of message dictionaries (role, content)
-        model: Model identifier string or config dict
+        model: Model identifier string or config dict with keys:
+               - id: model name (required)
+               - vertex_location: Vertex AI location (optional)
+               - vertex_credentials: Vertex AI credentials (optional)
+               - reasoning: True or "low"/"medium"/"high" (optional)
         tools: Optional list of tool schemas
         temperature: Sampling temperature
         max_tokens: Maximum tokens to generate
@@ -29,12 +33,35 @@ def call_llm(
         Exception: If the LLM call fails
     """
     # Build kwargs for litellm
-    kwargs = {
-        "model": model if isinstance(model, str) else model.get("name", "gpt-4"),
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
+    if isinstance(model, str):
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+    else:
+        # Model is a dict
+        kwargs = {
+            "model": model["id"],
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        # Add optional Vertex AI parameters
+        if "vertex_location" in model:
+            kwargs["vertex_location"] = model["vertex_location"]
+        if "vertex_credentials" in model:
+            kwargs["vertex_credentials"] = model["vertex_credentials"]
+
+        # Handle reasoning parameter
+        if "reasoning" in model:
+            reasoning = model["reasoning"]
+            if reasoning is True:
+                kwargs["reasoning_effort"] = "medium"
+            else:
+                kwargs["reasoning_effort"] = reasoning
 
     # Add tools if provided
     if tools:
