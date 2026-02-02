@@ -2,9 +2,9 @@
 
 ## Summary
 
-Successfully implemented the foundation and core features of the Acorn LLM agent framework through Phase 7 of the implementation plan.
+Successfully implemented the foundation and core features of the Acorn LLM agent framework through Phase 8 of the implementation plan.
 
-**Test Results:** 148 tests passing with 79% code coverage
+**Test Results:** 167 tests passing with 84% code coverage
 
 ---
 
@@ -100,6 +100,30 @@ Successfully implemented the foundation and core features of the Acorn LLM agent
 - Stream accumulation in LiteLLM client
 
 **Test Coverage:** 2 forced termination tests (tool_choice and XML fallback)
+
+### ✅ Phase 8: Partial Streaming for Structured Outputs
+**Features Added:**
+- Incremental JSON parsing for `__finish__` tool call arguments
+- Partial[T] instance creation from partial JSON data during streaming
+- `chunk.partial` population in StreamChunk for `__finish__` calls
+- Progressive structured output updates via `on_stream` callback
+- `_parse_partial_json()` helper with lenient parsing strategies
+- `final_output_schema` parameter passed through LLM call chain
+- Automatic detection of `__finish__` vs other tool calls during streaming
+
+**Implementation Details:**
+- `call_llm()` accepts optional `final_output_schema` parameter
+- `_handle_streaming_response()` detects `__finish__` tool calls
+- Partial JSON parsing attempts direct parse, then lenient prefix extraction
+- Non-`__finish__` tools maintain current behavior (raw tool_call delta)
+- Backward compatible: modules without `final_output` work unchanged
+
+**Test Coverage:** 19 new tests (14 in test_streaming_partial.py, 5 in test_litellm_client.py)
+- Unit tests for `_parse_partial_json()` with complete/incomplete/invalid JSON
+- Integration tests with Module streaming
+- Progressive field update verification
+- Complex nested types handling
+- Backward compatibility tests
 
 ---
 
@@ -216,25 +240,46 @@ class RobustModule(module):
     final_output = Output
 ```
 
-#### 6. Streaming Responses
+#### 6. Streaming Responses with Partial Output
 ```python
-class StreamingAgent(module):
+from pydantic import BaseModel
+from acorn import Module
+
+class CityInfo(BaseModel):
+    name: str
+    population: int
+    description: str
+
+class StreamingAgent(Module):
     stream = True  # Enable streaming
-    max_steps = 10
-    final_output = Output
+    max_steps = 3
+    final_output = CityInfo
 
     def on_stream(self, chunk):
-        # Handle streaming text content
+        # Handle streaming text content (chain of thought)
         if chunk.content:
             print(chunk.content, end="", flush=True)
 
-        # Handle streaming tool calls
+        # Handle streaming partial structured output (Phase 8)
+        if chunk.partial:
+            # Progressive updates as fields are completed
+            print(f"\n[Partial: {chunk.partial.model_dump(exclude_none=True)}]")
+
+        # Handle streaming tool calls (non-__finish__)
         if chunk.tool_call:
             print(f"\nTool: {chunk.tool_call}")
 
         # Check if done
         if chunk.done:
             print("\nStreaming complete")
+
+agent = StreamingAgent()
+result = agent(city="Paris")
+# Output progressively shows:
+# [Partial: {'name': 'Paris'}]
+# [Partial: {'name': 'Paris', 'population': 2165423}]
+# [Partial: {'name': 'Paris', 'population': 2165423, 'description': '...'}]
+print(f"\nFinal: {result}")
 ```
 
 #### 7. Forced Termination at max_steps
@@ -248,15 +293,7 @@ class LimitedAgent(module):
 
 ---
 
-## Remaining Implementation (Phases 8-10)
-
-### Phase 8: Partial Streaming
-**Not Yet Implemented:**
-- Stream partial structured output as JSON arrives
-- Partial[T] in StreamChunk during streaming
-- Progressive field updates
-
-**Estimated Effort:** 1-2 days
+## Remaining Implementation (Phases 9-10)
 
 ### Phase 9: Branching System
 **Not Yet Implemented:**
@@ -275,18 +312,18 @@ class LimitedAgent(module):
 
 **Estimated Effort:** 1 day
 
-**Total Remaining:** ~1 week for full v0.1
+**Total Remaining:** ~4-5 days for full v0.1
 
 ---
 
 ## Test Statistics
 
 ```bash
-✅ 148 tests passing
-✅ 79% code coverage
+✅ 167 tests passing
+✅ 84% code coverage
 ✅ All core components tested
 ✅ Mocked LLM responses for deterministic testing
-✅ Edge cases covered (errors, retries, max_steps, forced termination)
+✅ Edge cases covered (errors, retries, max_steps, forced termination, partial streaming)
 ```
 
 **Test Breakdown:**
@@ -296,8 +333,9 @@ class LimitedAgent(module):
 - Module (single-turn): 21 tests
 - Parse retry: 6 tests
 - Agentic loop: 10 tests (including forced termination)
-- Streaming: Included in module tests
-- Other: 19 tests
+- Streaming: 19 tests (partial streaming)
+- LiteLLM client: 12 tests (including streaming)
+- Other: 7 tests
 
 ---
 
@@ -375,7 +413,7 @@ class Step:
 ```python
 class StreamChunk:
     content: str | None       # Text content (if text chunk)
-    partial: Any | None       # Partial[T] for structured output (Phase 8)
+    partial: Any | None       # Partial[T] for structured output (✅ Phase 8 complete)
     tool_call: dict | None    # Tool call delta (if tool call chunk)
     done: bool               # True if streaming complete
 ```
@@ -441,19 +479,17 @@ class AdaptiveAgent(module):
 
 ## Known Limitations
 
-1. **Partial streaming** - Partial[T] for structured output streaming not yet implemented (Phase 8)
-2. **No branching** - Branch modules not yet implemented (Phase 9)
-3. **No caching** - Provider caching not yet implemented (Phase 10)
-4. **Sync only** - No async support in v0.1
-5. **Streaming in retries** - Retry paths don't use streaming yet (optimization for v0.2)
+1. **No branching** - Branch modules not yet implemented (Phase 9)
+2. **No caching** - Provider caching not yet implemented (Phase 10)
+3. **Sync only** - No async support in v0.1
+4. **Streaming in retries** - Retry paths don't use partial streaming yet (optimization for v0.2)
 
 ---
 
 ## Next Steps for v0.1 Completion
 
-1. **Phase 8:** Implement partial streaming with Partial[T] for structured output
-2. **Phase 9:** Add branching system (declarative and manual)
-3. **Phase 10:** Support provider caching (Anthropic-style)
+1. **Phase 9:** Add branching system (declarative and manual)
+2. **Phase 10:** Support provider caching (Anthropic-style)
 
 After completion, v0.1 will be production-ready for all planned use cases.
 
@@ -463,7 +499,7 @@ After completion, v0.1 will be production-ready for all planned use cases.
 
 To continue implementation:
 
-1. Follow the phases in order (7 → 10)
+1. Follow the phases in order (9 → 10)
 2. Write tests first for each feature
 3. Maintain >80% code coverage
 4. Update this status document as you progress
@@ -473,4 +509,4 @@ To continue implementation:
 
 *Last Updated: 2026-02-02*
 *Version: 0.1.0-beta*
-*Status: Core features and callbacks complete, Phase 7 done*
+*Status: Core features, callbacks, and partial streaming complete - Phase 8 done*

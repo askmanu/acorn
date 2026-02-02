@@ -181,6 +181,7 @@ class Module:
             max_tokens=self.max_tokens,
             stream=self.stream,
             on_stream=on_stream_callback,
+            final_output_schema=self.final_output,
         )
 
         # Add assistant response to history
@@ -267,6 +268,7 @@ class Module:
                 max_tokens=self.max_tokens,
                 stream=self.stream,
                 on_stream=on_stream_callback,
+                final_output_schema=self.final_output,
             )
 
             # Add assistant message to history

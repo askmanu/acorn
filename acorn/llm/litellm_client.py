@@ -1,7 +1,9 @@
 """LiteLLM client wrapper for Acorn."""
 
 import litellm
+import json
 from typing import Any, Iterator, Callable
+from pydantic import BaseModel
 from acorn.types import StreamChunk
 
 
@@ -14,6 +16,7 @@ def call_llm(
     tool_choice: str | dict | None = None,
     stream: bool = False,
     on_stream: Callable[[StreamChunk], None] | None = None,
+    final_output_schema: type[BaseModel] | None = None,
 ) -> dict:
     """Wrapper around litellm.completion for consistent LLM calls.
 
@@ -30,6 +33,8 @@ def call_llm(
         tool_choice: Optional tool choice directive
         stream: Whether to stream the response
         on_stream: Optional callback for streaming chunks
+        final_output_schema: Optional Pydantic model for structured output
+                            (used for partial streaming of __finish__ calls)
 
     Returns:
         LiteLLM response dictionary (accumulated from stream if streaming)
@@ -85,7 +90,7 @@ def call_llm(
         if stream and on_stream:
             # Streaming mode with callback
             response = litellm.completion(**kwargs)
-            return _handle_streaming_response(response, on_stream)
+            return _handle_streaming_response(response, on_stream, final_output_schema)
         elif stream:
             # Streaming mode without callback (just accumulate)
             response = litellm.completion(**kwargs)
@@ -138,13 +143,15 @@ def _response_to_dict(response: Any) -> dict:
 
 def _handle_streaming_response(
     response: Iterator,
-    on_stream: Callable[[StreamChunk], None]
+    on_stream: Callable[[StreamChunk], None],
+    final_output_schema: type[BaseModel] | None = None,
 ) -> dict:
     """Handle streaming response with callback.
 
     Args:
         response: LiteLLM streaming response iterator
         on_stream: Callback to call for each chunk
+        final_output_schema: Optional Pydantic model for partial streaming
 
     Returns:
         Accumulated response dictionary
@@ -194,12 +201,33 @@ def _handle_streaming_response(
                     if hasattr(tc_delta.function, "arguments") and tc_delta.function.arguments:
                         accumulated_tool_calls[idx]["function"]["arguments"] += tc_delta.function.arguments
 
-                # Call callback with tool call chunk
-                stream_chunk = StreamChunk(
-                    tool_call={"index": idx, "delta": tc_delta},
-                    done=False
-                )
-                on_stream(stream_chunk)
+                # Check if this is a __finish__ call with schema
+                tool_name = accumulated_tool_calls[idx]["function"]["name"]
+                is_finish = tool_name == "__finish__"
+
+                if is_finish and final_output_schema:
+                    # Try to parse partial JSON for __finish__ calls
+                    accumulated_args = accumulated_tool_calls[idx]["function"]["arguments"]
+                    partial_instance = _parse_partial_json(accumulated_args, final_output_schema)
+
+                    if partial_instance:
+                        # Send partial structured output
+                        stream_chunk = StreamChunk(partial=partial_instance, done=False)
+                        on_stream(stream_chunk)
+                    else:
+                        # Parsing failed, send tool_call delta as fallback
+                        stream_chunk = StreamChunk(
+                            tool_call={"index": idx, "delta": tc_delta},
+                            done=False
+                        )
+                        on_stream(stream_chunk)
+                else:
+                    # Not __finish__ or no schema - send tool call delta
+                    stream_chunk = StreamChunk(
+                        tool_call={"index": idx, "delta": tc_delta},
+                        done=False
+                    )
+                    on_stream(stream_chunk)
 
         # Get finish reason
         if hasattr(chunk.choices[0], "finish_reason") and chunk.choices[0].finish_reason:
@@ -289,3 +317,49 @@ def _accumulate_streaming_response(response: Iterator) -> dict:
         result["tool_calls"] = accumulated_tool_calls
 
     return result
+
+def _parse_partial_json(
+    json_string: str,
+    model_class: type[BaseModel]
+) -> BaseModel | None:
+    """Parse potentially incomplete JSON into Partial[T] instance.
+
+    Attempts to parse accumulated JSON arguments. If parsing fails,
+    tries to extract valid JSON prefix using lenient strategies.
+
+    Args:
+        json_string: Accumulated JSON string (potentially incomplete)
+        model_class: Pydantic model class (e.g., final_output)
+
+    Returns:
+        Partial[T] instance with available fields, or None if unparsable
+    """
+    from acorn.partial import Partial
+
+    if not json_string.strip():
+        return None
+
+    # Create Partial version of model
+    PartialModel = Partial(model_class)
+
+    # Strategy 1: Try direct parse (works if JSON is complete so far)
+    try:
+        data = json.loads(json_string)
+        return PartialModel(**data)
+    except json.JSONDecodeError:
+        pass
+
+    # Strategy 2: Extract valid JSON prefix
+    # Try to find last complete field by truncating at last comma/brace
+    for end_pos in range(len(json_string), 0, -1):
+        # Try truncating and closing with }
+        candidate = json_string[:end_pos].rstrip() + "}"
+
+        try:
+            data = json.loads(candidate)
+            return PartialModel(**data)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    # Strategy 3: Empty partial (all fields None)
+    return PartialModel()
