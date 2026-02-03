@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "acorn"
-version = "0.1.0"
+version = "0.2.0"
 description = "LLM agent framework with structured I/O"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,6 +31,9 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.1.0",
+]
+vertex = [
+    "google-cloud-aiplatform>=1.0",
 ]
 
 [project.urls]

@@ -40,16 +40,16 @@ pip install -e .
 from pydantic import BaseModel
 from acorn import module
 
+class Input(BaseModel):
+    text: str
+    max_words: int = 100
+
+class Output(BaseModel):
+    summary: str
+    word_count: int
+
 class Summarizer(module):
     """Summarize text concisely."""
-
-    class Input(BaseModel):
-        text: str
-        max_words: int = 100
-
-    class Output(BaseModel):
-        summary: str
-        word_count: int
 
     initial_input = Input
     final_output = Output
@@ -70,14 +70,14 @@ print(f"Words: {result.word_count}")
 ```python
 from acorn import module, tool
 
+class Output(BaseModel):
+    findings: str
+    sources: list[str]
+
 class ResearchAgent(module):
     """Research assistant with tools."""
 
     max_steps = 5  # Enable agentic loop
-
-    class Output(BaseModel):
-        findings: str
-        sources: list[str]
 
     final_output = Output
 
@@ -228,17 +228,8 @@ Contributions welcome! To continue implementation:
 
 ---
 
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) for details
-
----
-
 ## 🙏 Acknowledgments
 
-- Heavily influenced by [DSPy](https://github.com/stanfordnlp/dspy)
-- Built on [Pydantic](https://pydantic.dev/) and [LiteLLM](https://litellm.ai/)
-- Developed with [Claude Code](https://claude.ai/code)
 
 ---
 
@@ -251,6 +242,8 @@ Check out:
 
 ---
 
-**Status:** Production-ready for single-turn and multi-turn use cases
-**Version:** 0.1.0-beta
-**Last Updated:** 2026-01-24
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) for details
+
+---
