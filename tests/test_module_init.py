@@ -8,8 +8,11 @@ from acorn.exceptions import ToolConflictError
 
 def test_module_instantiation():
     """Test basic module instantiation."""
+    class Output(BaseModel):
+        result: str
+
     class SimpleModule(Module):
-        pass
+        final_output = Output
 
     mod = SimpleModule()
     assert mod is not None
@@ -20,10 +23,14 @@ def test_module_instantiation():
 
 def test_module_custom_config():
     """Test module with custom configuration."""
+    class Output(BaseModel):
+        result: str
+
     class CustomModule(Module):
         model = "gpt-4"
         temperature = 0.5
         max_tokens = 2000
+        final_output = Output
 
     mod = CustomModule()
     assert mod.model == "gpt-4"
@@ -37,8 +44,12 @@ def test_module_collects_tools_from_list():
         """External tool."""
         return x * 2
 
+    class Output(BaseModel):
+        result: str
+
     class ModuleWithTools(Module):
         tools = [external_tool]
+        final_output = Output
 
     mod = ModuleWithTools()
     assert len(mod._collected_tools) == 1
@@ -47,7 +58,12 @@ def test_module_collects_tools_from_list():
 
 def test_module_collects_tools_from_methods():
     """Test that module collects @tool decorated methods."""
+    class Output(BaseModel):
+        result: str
+
     class ModuleWithMethods(Module):
+        final_output = Output
+
         @tool
         def my_tool(self, x: int) -> int:
             """My tool."""
@@ -64,8 +80,12 @@ def test_module_collects_both_tool_types():
         """External."""
         return x
 
+    class Output(BaseModel):
+        result: str
+
     class MixedModule(Module):
         tools = [external_tool]
+        final_output = Output
 
         @tool
         def internal_tool(self, y: int) -> int:
@@ -91,8 +111,12 @@ def test_tool_conflict_detection():
     # Manually set same name to create conflict
     my_tool_copy.__name__ = "my_tool"
 
+    class Output(BaseModel):
+        result: str
+
     class ConflictModule(Module):
         tools = [my_tool, my_tool_copy]
+        final_output = Output
 
     with pytest.raises(ToolConflictError, match="Duplicate tool name"):
         ConflictModule()
@@ -100,8 +124,12 @@ def test_tool_conflict_detection():
 
 def test_system_prompt_from_string():
     """Test system prompt from string."""
+    class Output(BaseModel):
+        result: str
+
     class StringPromptModule(Module):
         system_prompt = "You are a helpful assistant."
+        final_output = Output
 
     mod = StringPromptModule()
     msg = mod._build_system_message()
@@ -111,8 +139,12 @@ def test_system_prompt_from_string():
 
 def test_system_prompt_from_docstring():
     """Test system prompt from class docstring."""
+    class Output(BaseModel):
+        result: str
+
     class DocstringModule(Module):
         """This is the system prompt from docstring."""
+        final_output = Output
 
     mod = DocstringModule()
     msg = mod._build_system_message()
@@ -121,8 +153,11 @@ def test_system_prompt_from_docstring():
 
 def test_system_prompt_empty():
     """Test empty system prompt."""
+    class Output(BaseModel):
+        result: str
+
     class NoPromptModule(Module):
-        pass
+        final_output = Output
 
     mod = NoPromptModule()
     msg = mod._build_system_message()
@@ -167,8 +202,22 @@ def test_finish_tool_generation():
 
 def test_single_turn_mode():
     """Test that max_steps=None means single-turn."""
+    class Output(BaseModel):
+        result: str
+
     class SingleTurnModule(Module):
         max_steps = None
+        final_output = Output
 
     mod = SingleTurnModule()
     assert mod.max_steps is None
+
+
+def test_init_validation_single_turn_requires_final_output():
+    """Test that single-turn mode requires final_output."""
+    class InvalidModule(Module):
+        final_output = None
+        # max_steps = None (default)
+
+    with pytest.raises(ValueError, match="final_output must be defined for single-turn"):
+        InvalidModule()

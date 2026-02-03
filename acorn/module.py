@@ -31,7 +31,7 @@ class Module:
 
         system_prompt: System prompt (str, Path, or method)
         initial_input: Pydantic model for input schema
-        final_output: Pydantic model for output schema
+        final_output: Pydantic model for output schema (required for single-turn, optional for multi-turn)
         tools: List of tool functions
 
     Example:
@@ -45,6 +45,15 @@ class Module:
         ...     final_output = Output
         >>> summarizer = Summarizer()
         >>> result = summarizer(text="Long text...")
+
+    Example (multi-turn without final_output):
+        >>> class ToolExecutor(Module):
+        ...     max_steps = 5
+        ...     tools = [log_action, save_data]
+        ...     final_output = None  # No structured output
+        >>> executor = ToolExecutor()
+        >>> result = executor()  # Returns None after executing tools
+        >>> assert result is None
     """
 
     # Default configuration
@@ -75,6 +84,13 @@ class Module:
         """Initialize the module."""
         # Validate model configuration
         self._validate_model_config()
+
+        # Validate final_output requirement for single-turn
+        if self.max_steps is None and self.final_output is None:
+            raise ValueError(
+                "final_output must be defined for single-turn modules (max_steps=None). "
+                "Set max_steps to enable multi-turn mode without final_output."
+            )
 
         # Collect all tools
         self._collected_tools = self._collect_all_tools()
@@ -110,14 +126,14 @@ class Module:
                         f"reasoning must be True or one of 'low', 'medium', 'high', got: {reasoning}"
                     )
 
-    def __call__(self, **kwargs) -> BaseModel:
+    def __call__(self, **kwargs) -> BaseModel | None:
         """Execute the module with provided inputs.
 
         Args:
             **kwargs: Input fields matching initial_input schema
 
         Returns:
-            Instance of final_output model
+            Instance of final_output model, or None if no final_output defined
 
         Raises:
             AcornError: If execution fails
@@ -128,14 +144,14 @@ class Module:
         else:
             return self._agentic_loop(**kwargs)
 
-    def _single_turn(self, **kwargs) -> BaseModel:
+    def _single_turn(self, **kwargs) -> BaseModel | None:
         """Execute a single-turn module call.
 
         Args:
             **kwargs: Input fields
 
         Returns:
-            Validated output model
+            Validated output model (always defined due to __init__ validation)
         """
         # 1. Validate input
         if self.initial_input:
@@ -212,14 +228,14 @@ class Module:
             attempt=0
         )
 
-    def _agentic_loop(self, **kwargs) -> BaseModel:
+    def _agentic_loop(self, **kwargs) -> BaseModel | None:
         """Execute multi-turn agentic loop with tool calls.
 
         Args:
             **kwargs: Input fields
 
         Returns:
-            Validated output model
+            Validated output model, or None if no final_output defined
         """
         # 1. Validate input
         if self.initial_input:
@@ -299,6 +315,10 @@ class Module:
 
                 # Check if it's __finish__
                 if tool_name == "__finish__":
+                    # If no final_output, return None immediately
+                    if self.final_output is None:
+                        return None
+
                     # Validate and return
                     try:
                         arguments = json.loads(tc["function"]["arguments"])
@@ -352,6 +372,10 @@ class Module:
 
                 # Check if step.finish() was called
                 if step._finished:
+                    # If no final_output, ignore kwargs and return None
+                    if self.final_output is None:
+                        return None
+
                     try:
                         result = self.final_output(**step._finish_kwargs)
                         return result
@@ -559,8 +583,26 @@ class Module:
         Returns:
             Tool schema dictionary for __finish__
         """
+        # Handle None case - generate parameter-less finish tool
         if not self.final_output:
-            raise AcornError("final_output must be defined")
+            finish_schema = {
+                "type": "function",
+                "function": {
+                    "name": "__finish__",
+                    "description": "Call this function when you are done executing tools and want to complete the task.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            }
+
+            def __finish__(**kwargs):
+                return kwargs
+
+            __finish__._tool_schema = finish_schema
+            return __finish__
 
         # Build parameters from final_output model fields
         parameters = {
@@ -615,18 +657,22 @@ class Module:
             # Generate schema on the fly
             return generate_tool_schema(tool)
 
-    def _force_termination(self) -> BaseModel:
+    def _force_termination(self) -> BaseModel | None:
         """Force termination at max_steps by requiring __finish__ call.
 
         Primary strategy: Use tool_choice to force __finish__ (preserves cache)
         Fallback strategy: Append XML instruction if tool_choice fails
 
         Returns:
-            Validated output model
+            Validated output model, or None if no final_output defined
 
         Raises:
             ParseError: If forced output fails validation after all retries
         """
+        # If no final_output, just return None
+        if self.final_output is None:
+            return None
+
         # Collect current tools and generate schemas
         current_tools = self._collected_tools.copy()
         finish_tool = self._generate_finish_tool()
