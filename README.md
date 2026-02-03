@@ -29,7 +29,7 @@ Build AI agents with type-safe inputs and outputs, automatic tool calling, and p
 
 ```bash
 # Install from source (PyPI package coming soon)
-git clone <repo>
+git clone https://github.com/askmanu/acorn
 cd acorn
 pip install -e .
 ```
