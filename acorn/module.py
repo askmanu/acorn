@@ -70,6 +70,9 @@ class Module:
     # Tools
     tools: list = []
 
+    # Metadata for LiteLLM tracking
+    metadata: dict | None = None
+
     # XML configuration
     xml_input_root: str = "input"
     xml_output_root: str = "output"
@@ -198,6 +201,7 @@ class Module:
             stream=self.stream,
             on_stream=on_stream_callback,
             final_output_schema=self.final_output,
+            metadata=self.metadata,
         )
 
         # Add assistant response to history
@@ -285,6 +289,7 @@ class Module:
                 stream=self.stream,
                 on_stream=on_stream_callback,
                 final_output_schema=self.final_output,
+                metadata=self.metadata,
             )
 
             # Add assistant message to history
@@ -514,6 +519,7 @@ class Module:
                 tools=tool_schemas,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                metadata=self.metadata,
             )
 
             if not response.get("tool_calls"):
@@ -687,7 +693,8 @@ class Module:
                 tools=tool_schemas,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
-                tool_choice={"type": "function", "function": {"name": "__finish__"}}
+                tool_choice={"type": "function", "function": {"name": "__finish__"}},
+                metadata=self.metadata,
             )
 
             # Process the response
@@ -762,7 +769,8 @@ class Module:
             tools=tool_schemas,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            tool_choice={"type": "function", "function": {"name": "__finish__"}}
+            tool_choice={"type": "function", "function": {"name": "__finish__"}},
+            metadata=self.metadata,
         )
 
         if not response.get("tool_calls"):
@@ -840,6 +848,7 @@ class Module:
             tools=None,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            metadata=self.metadata,
         )
 
         # Parse XML from response content
@@ -912,6 +921,7 @@ class Module:
             tools=None,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            metadata=self.metadata,
         )
 
         content = response.get("content", "")

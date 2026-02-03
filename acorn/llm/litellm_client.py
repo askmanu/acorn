@@ -17,6 +17,7 @@ def call_llm(
     stream: bool = False,
     on_stream: Callable[[StreamChunk], None] | None = None,
     final_output_schema: type[BaseModel] | None = None,
+    metadata: dict | None = None,
 ) -> dict:
     """Wrapper around litellm.completion for consistent LLM calls.
 
@@ -35,6 +36,7 @@ def call_llm(
         on_stream: Optional callback for streaming chunks
         final_output_schema: Optional Pydantic model for structured output
                             (used for partial streaming of __finish__ calls)
+        metadata: Optional metadata dict for LiteLLM tracking
 
     Returns:
         LiteLLM response dictionary (accumulated from stream if streaming)
@@ -84,6 +86,10 @@ def call_llm(
     # Add stream if requested
     if stream:
         kwargs["stream"] = True
+
+    # Add metadata if provided
+    if metadata:
+        kwargs["metadata"] = metadata
 
     # Call LiteLLM
     try:
