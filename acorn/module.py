@@ -73,6 +73,9 @@ class Module:
     # Metadata for LiteLLM tracking
     metadata: dict | None = None
 
+    # Provider caching configuration
+    cache: bool | list[dict] | None = None
+
     # XML configuration
     xml_input_root: str = "input"
     xml_output_root: str = "output"
@@ -87,6 +90,9 @@ class Module:
         """Initialize the module."""
         # Validate model configuration
         self._validate_model_config()
+
+        # Validate cache configuration
+        self._validate_cache_config()
 
         # Validate final_output requirement for single-turn
         if self.max_steps is None and self.final_output is None:
@@ -128,6 +134,66 @@ class Module:
                     raise ValueError(
                         f"reasoning must be True or one of 'low', 'medium', 'high', got: {reasoning}"
                     )
+
+    def _validate_cache_config(self):
+        """Validate cache configuration.
+
+        Raises:
+            ValueError: If cache config is invalid
+        """
+        # Allow None, True, False
+        if self.cache is None or isinstance(self.cache, bool):
+            return
+
+        # Must be a list
+        if not isinstance(self.cache, list):
+            raise ValueError(
+                f"cache must be None, bool, or list[dict], got: {type(self.cache).__name__}"
+            )
+
+        # Must not be empty
+        if len(self.cache) == 0:
+            raise ValueError("cache list cannot be empty")
+
+        # Validate each item
+        for i, item in enumerate(self.cache):
+            # Must be a dict
+            if not isinstance(item, dict):
+                raise ValueError(
+                    f"cache[{i}] must be a dict, got: {type(item).__name__}"
+                )
+
+            # Must have 'location' key
+            if "location" not in item:
+                raise ValueError(
+                    f"cache[{i}] must have 'location' key"
+                )
+
+            # 'location' must be 'message'
+            if item["location"] != "message":
+                raise ValueError(
+                    f"cache[{i}]['location'] must be 'message', got: {item['location']}"
+                )
+
+            # Only allowed keys: location, role, index
+            allowed_keys = {"location", "role", "index"}
+            invalid_keys = set(item.keys()) - allowed_keys
+            if invalid_keys:
+                raise ValueError(
+                    f"cache[{i}] has invalid keys: {invalid_keys}. Allowed: {allowed_keys}"
+                )
+
+            # Validate 'role' if present
+            if "role" in item and not isinstance(item["role"], str):
+                raise ValueError(
+                    f"cache[{i}]['role'] must be a string, got: {type(item['role']).__name__}"
+                )
+
+            # Validate 'index' if present
+            if "index" in item and not isinstance(item["index"], int):
+                raise ValueError(
+                    f"cache[{i}]['index'] must be an int, got: {type(item['index']).__name__}"
+                )
 
     def __call__(self, **kwargs) -> BaseModel | None:
         """Execute the module with provided inputs.
@@ -202,6 +268,7 @@ class Module:
             on_stream=on_stream_callback,
             final_output_schema=self.final_output,
             metadata=self.metadata,
+            cache=self.cache,
         )
 
         # Add assistant response to history
@@ -290,6 +357,7 @@ class Module:
                 on_stream=on_stream_callback,
                 final_output_schema=self.final_output,
                 metadata=self.metadata,
+                cache=self.cache,
             )
 
             # Add assistant message to history
@@ -520,6 +588,7 @@ class Module:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 metadata=self.metadata,
+                cache=self.cache,
             )
 
             if not response.get("tool_calls"):
@@ -695,6 +764,7 @@ class Module:
                 max_tokens=self.max_tokens,
                 tool_choice={"type": "function", "function": {"name": "__finish__"}},
                 metadata=self.metadata,
+                cache=self.cache,
             )
 
             # Process the response
@@ -771,6 +841,7 @@ class Module:
             max_tokens=self.max_tokens,
             tool_choice={"type": "function", "function": {"name": "__finish__"}},
             metadata=self.metadata,
+            cache=self.cache,
         )
 
         if not response.get("tool_calls"):
@@ -849,6 +920,7 @@ class Module:
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             metadata=self.metadata,
+            cache=self.cache,
         )
 
         # Parse XML from response content
@@ -922,6 +994,7 @@ class Module:
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             metadata=self.metadata,
+            cache=self.cache,
         )
 
         content = response.get("content", "")

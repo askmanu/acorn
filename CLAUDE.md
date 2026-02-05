@@ -65,13 +65,10 @@ LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteL
 - Step callbacks and streaming
 - Forced termination at `max_steps` (tool_choice + XML fallback)
 - Branching (declarative and manual)
-
-### 🚧 In Progress
-- Streaming responses (Phase 8)
-- Forced termination strategies refinement (Phase 7)
+- Streaming responses with partial structured outputs (Phase 8)
+- Provider caching (Phase 10)
 
 ### 📋 Planned
-- Provider caching (Phase 10)
 - Async support (v0.2)
 
 ## File Structure

@@ -4,7 +4,7 @@
 
 Successfully implemented the foundation and core features of the Acorn LLM agent framework through Phase 8 of the implementation plan.
 
-**Test Results:** 167 tests passing with 84% code coverage
+**Test Results:** 201 tests passing with 85% code coverage
 
 ---
 
@@ -124,6 +124,27 @@ Successfully implemented the foundation and core features of the Acorn LLM agent
 - Progressive field update verification
 - Complex nested types handling
 - Backward compatibility tests
+
+### ✅ Phase 10: Provider Caching
+**Features Added:**
+- `cache` attribute on Module class for provider-level prompt caching
+- Support for `cache=True` (default strategy), `cache=False`/`None` (no caching), and custom `list[dict]` configs
+- Default caching strategy: system message + first user message
+- Automatic transformation to LiteLLM's `cache_control_injection_points` parameter
+- Full validation of cache configuration in `_validate_cache_config()`
+
+**Implementation Details:**
+- `cache` parameter added to all 7 `call_llm()` invocations in module.py
+- LiteLLM client transforms `cache=True` to default injection points array
+- Custom cache arrays forwarded as-is to LiteLLM
+- Validation enforces: location must be "message", valid keys (location/role/index), correct types
+
+**Test Coverage:** 23 new tests (16 validation + 4 forwarding + 4 integration - 1 duplicate = 23 net)
+- 16 validation tests in test_cache_config.py (valid/invalid configurations)
+- 4 LiteLLM forwarding tests in test_litellm_client.py (None, False, True, custom)
+- 4 integration tests in test_cache_integration.py (single-turn, multi-turn, custom, no cache)
+
+**Reference:** https://docs.litellm.ai/docs/tutorials/prompt_caching
 
 ---
 

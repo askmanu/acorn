@@ -18,6 +18,7 @@ def call_llm(
     on_stream: Callable[[StreamChunk], None] | None = None,
     final_output_schema: type[BaseModel] | None = None,
     metadata: dict | None = None,
+    cache: bool | list[dict] | None = None,
 ) -> dict:
     """Wrapper around litellm.completion for consistent LLM calls.
 
@@ -37,6 +38,11 @@ def call_llm(
         final_output_schema: Optional Pydantic model for structured output
                             (used for partial streaming of __finish__ calls)
         metadata: Optional metadata dict for LiteLLM tracking
+        cache: Optional caching configuration:
+               - None: no caching (default)
+               - False: no caching (same as None)
+               - True: use default cache strategy (system message + first user message)
+               - list[dict]: custom cache control injection points
 
     Returns:
         LiteLLM response dictionary (accumulated from stream if streaming)
@@ -90,6 +96,18 @@ def call_llm(
     # Add metadata if provided
     if metadata:
         kwargs["metadata"] = metadata
+
+    # Add cache control if provided
+    if cache is not None:
+        if cache is True:
+            # Use default caching strategy
+            kwargs["cache_control_injection_points"] = [
+                {"location": "message", "role": "system"},
+                {"location": "message", "index": 0}
+            ]
+        elif cache is not False:
+            # Use custom cache configuration
+            kwargs["cache_control_injection_points"] = cache
 
     # Call LiteLLM
     try:

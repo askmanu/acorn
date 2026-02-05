@@ -337,3 +337,91 @@ def test_streaming_with_progressive_json():
     last_partial = partial_chunks[-1].partial
     assert last_partial.result == "test"
     assert last_partial.count == 5
+
+
+def test_call_llm_with_cache_none():
+    """Test call_llm with cache=None (no parameter added)."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            cache=None
+        )
+
+        # Verify cache_control_injection_points was NOT added
+        call_args = mock_completion.call_args
+        assert "cache_control_injection_points" not in call_args.kwargs
+
+
+def test_call_llm_with_cache_false():
+    """Test call_llm with cache=False (no parameter added)."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            cache=False
+        )
+
+        # Verify cache_control_injection_points was NOT added
+        call_args = mock_completion.call_args
+        assert "cache_control_injection_points" not in call_args.kwargs
+
+
+def test_call_llm_with_cache_true():
+    """Test call_llm with cache=True (adds default array)."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            cache=True
+        )
+
+        # Verify cache_control_injection_points was added with default values
+        call_args = mock_completion.call_args
+        assert call_args.kwargs["cache_control_injection_points"] == [
+            {"location": "message", "role": "system"},
+            {"location": "message", "index": 0}
+        ]
+
+
+def test_call_llm_with_cache_custom():
+    """Test call_llm with custom cache array."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        custom_cache = [{"location": "message", "role": "system"}]
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            cache=custom_cache
+        )
+
+        # Verify cache_control_injection_points was forwarded as-is
+        call_args = mock_completion.call_args
+        assert call_args.kwargs["cache_control_injection_points"] == custom_cache

@@ -20,7 +20,8 @@ Complete API surface for acorn v0.1.
 | `final_output` | `BaseModel \| list` | `[]` | Output schema |
 | `tools` | `list[Callable]` | `[]` | Available tools |
 | `branches` | `dict` | `{}` | Branch module registry |
-| `cache` | `list[dict]` | `[]` | Provider cache configuration |
+| `metadata` | `dict \| None` | `None` | LiteLLM metadata for tracking |
+| `cache` | `bool \| list[dict] \| None` | `None` | Provider caching config. `True` = default strategy (system + first message), `False`/`None` = no caching, `list[dict]` = custom injection points |
 
 ### XML Serialization Attributes
 
