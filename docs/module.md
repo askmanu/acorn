@@ -1,21 +1,19 @@
 # Module
 
-The `Module` class is the foundation of acorn. It represents an LLM agent with structured inputs, outputs, and tool-calling capabilities.
+The `Module` class is the core building block of acorn. It encapsulates everything needed to create an LLM agent: model configuration, input/output schemas, tools, and execution behavior.
 
 ## What is Module?
 
-A Module encapsulates everything needed to run an LLM agent:
-- Model configuration (which LLM to use, temperature, etc.)
-- Input and output schemas (using Pydantic models)
-- Tools the agent can call
-- Execution mode (single-turn or multi-turn agentic loop)
-- Lifecycle hooks for customization
+A Module defines a reusable LLM agent with:
+- **Model settings**: Which LLM to use and how to configure it
+- **Structured I/O**: Pydantic schemas for inputs and outputs
+- **Tools**: Functions the agent can call to gather information or take actions
+- **Execution mode**: Single-turn (one call) or multi-turn (agentic loop)
+- **Lifecycle hooks**: Callbacks to observe or modify behavior
 
-Think of a Module as a reusable, configurable LLM workflow with type safety built in.
+Think of Module as a template for an agent. You define the class once, then create instances and call them with different inputs.
 
 ## Basic Usage
-
-Create a Module by subclassing and defining schemas:
 
 ```python
 from pydantic import BaseModel, Field
@@ -26,88 +24,85 @@ class Input(BaseModel):
 
 class Output(BaseModel):
     sentiment: str = Field(description="positive, negative, or neutral")
-    confidence: float = Field(description="Confidence score 0-1")
+    confidence: float = Field(description="0 to 1")
 
 class SentimentAnalyzer(Module):
     """Analyze the sentiment of text."""
     
     initial_input = Input
     final_output = Output
+    model = "anthropic/claude-sonnet-4-5-20250514"
+    temperature = 0.3
 
 # Use it
 analyzer = SentimentAnalyzer()
-result = analyzer(text="I love this!")
-
+result = analyzer(text="I love this product!")
 print(result.sentiment)  # "positive"
 print(result.confidence)  # 0.95
 ```
 
-The Module validates inputs, calls the LLM, and returns validated output as a Pydantic model.
+## Single-Turn vs Multi-Turn
 
-## Execution Modes
-
-Modules run in two modes depending on `max_steps`:
+Modules operate in two modes:
 
 ### Single-Turn Mode
 
-Default behavior when `max_steps` is `None`. The Module makes one LLM call and returns structured output immediately.
+Default behavior (`max_steps = None`). The agent makes one LLM call and returns structured output.
 
 ```python
-class Translator(Module):
-    """Translate text to French."""
-    
+class Classifier(Module):
+    """Classify input text."""
     initial_input = Input
     final_output = Output
-    # max_steps = None (default)
+    # max_steps not set = single-turn
 ```
 
-**Flow:**
+Flow:
 1. Validate input against `initial_input` schema
-2. Call LLM with input and tools (including `__finish__`)
-3. LLM calls `__finish__` with structured output
+2. Call LLM with input and available tools
+3. LLM calls `__finish__` tool with structured output
 4. Validate output against `final_output` schema
-5. Return Pydantic model instance
+5. Return validated Pydantic model
 
 ### Multi-Turn Mode
 
-Enable with `max_steps = N` for agentic loops where the LLM can call tools iteratively.
+Enable agentic behavior by setting `max_steps` to a positive integer. The agent can iterate, calling tools and reasoning across multiple steps.
 
 ```python
-class ResearchAgent(Module):
-    """Research assistant that uses tools."""
-    
+class Researcher(Module):
+    """Research a topic using tools."""
+    initial_input = Input
     final_output = Output
-    max_steps = 5  # Up to 5 iterations
-    
-    @tool
-    def search(self, query: str) -> list:
-        """Search for information."""
-        return search_api(query)
+    max_steps = 10
+    tools = [search_web, read_file]
 ```
 
-**Flow:**
+Flow:
 1. Validate input
-2. Loop up to N times:
-   - Call LLM with current history and tools
-   - Execute any tool calls
-   - Add results to history
-   - If `__finish__` called, validate and return output
-3. If max steps reached, force termination
+2. Start loop (up to `max_steps` iterations)
+3. Call LLM with current history
+4. Execute any tool calls
+5. Add results to history
+6. Call `on_step` hook if defined
+7. If LLM calls `__finish__`, validate and return output
+8. Otherwise, continue loop
+9. If max steps reached, force termination
 
-## Configuration Attributes
+## Model Configuration
 
-### Model Settings
+### model
 
-Control which LLM to use and how it behaves:
+The LLM to use. Can be a string or dict.
+
+**String format** (most common):
 
 ```python
-class MyModule(Module):
-    model = "anthropic/claude-sonnet-4-5-20250514"  # LiteLLM identifier
-    temperature = 0.7  # Sampling temperature (0-2)
-    max_tokens = 4096  # Maximum response length
+model = "anthropic/claude-sonnet-4-5-20250514"
+model = "openai/gpt-4o"
+model = "vertex_ai/gemini-1.5-pro"
 ```
 
-You can also use a dict for advanced configuration:
+**Dict format** (advanced):
 
 ```python
 model = {
@@ -118,73 +113,142 @@ model = {
 }
 ```
 
-The `reasoning` parameter enables extended thinking modes:
-- `True` - Use model's default reasoning
-- `"low"`, `"medium"`, `"high"` - Specific reasoning levels
+The dict format supports:
+- `id` (required): Model identifier
+- `vertex_location`: Google Cloud region for Vertex AI
+- `vertex_credentials`: Path to credentials file
+- `reasoning`: Enable extended thinking mode (`True`, `"low"`, `"medium"`, or `"high"`)
 
-### System Prompt
+### temperature
 
-Provide instructions to the LLM. Multiple options:
+Controls randomness in responses. Range: 0.0 to 1.0.
 
-**Docstring (recommended):**
 ```python
-class Summarizer(Module):
-    """Summarize text concisely.
+temperature = 0.7  # Default - balanced
+temperature = 0.0  # Deterministic
+temperature = 1.0  # More creative
+```
+
+Lower values make output more focused and deterministic. Higher values increase randomness and creativity.
+
+### max_tokens
+
+Maximum tokens the model can generate in a single response.
+
+```python
+max_tokens = 4096  # Default
+max_tokens = 8192  # Longer responses
+```
+
+### max_steps
+
+Maximum iterations in the agentic loop. Controls execution mode.
+
+```python
+max_steps = None  # Default - single-turn
+max_steps = 5     # Up to 5 iterations
+max_steps = 20    # More complex tasks
+```
+
+If the agent reaches `max_steps` without calling `__finish__`, acorn forces termination and requires a final response.
+
+## Prompts and Schemas
+
+### system_prompt
+
+Instructions for the LLM. Can be a string, file path, method, or docstring.
+
+**Docstring** (recommended):
+
+```python
+class Agent(Module):
+    """You are a helpful assistant.
     
-    Keep summaries under 100 words.
-    Focus on key points.
+    Follow these guidelines:
+    - Be concise
+    - Cite sources
+    - Ask clarifying questions when needed
     """
+    # Docstring becomes the system prompt
 ```
 
-**String attribute:**
+**String attribute**:
+
 ```python
-class Summarizer(Module):
-    system_prompt = "Summarize text concisely. Keep under 100 words."
+system_prompt = """
+You are a research assistant.
+Focus on accuracy and cite sources.
+"""
 ```
 
-**File path:**
+**File path**:
+
 ```python
 from pathlib import Path
 
-class Summarizer(Module):
-    system_prompt = Path("prompts/summarizer.md")
+system_prompt = Path("prompts/assistant.md")
 ```
 
-**Dynamic method:**
+**Method** (dynamic):
+
 ```python
 from datetime import date
 
-class Assistant(Module):
-    def system_prompt(self):
-        return f"You are an assistant. Today is {date.today()}."
+def system_prompt(self):
+    return f"""
+    You are an assistant.
+    Today's date: {date.today()}
+    """
 ```
 
-### Schemas
+### initial_input
 
-Define input and output structure using Pydantic models:
+Pydantic model defining the input schema. Arguments passed to `__call__` must match this schema.
 
 ```python
-class QuestionInput(BaseModel):
-    question: str = Field(description="The question to answer")
+class Input(BaseModel):
+    question: str = Field(description="Question to answer")
     context: str | None = Field(default=None, description="Optional context")
 
-class AnswerOutput(BaseModel):
-    answer: str = Field(description="The answer")
-    sources: list[str] = Field(description="Sources used")
+class Agent(Module):
+    initial_input = Input
 
-class QA(Module):
-    initial_input = QuestionInput  # What the module accepts
-    final_output = AnswerOutput    # What it returns
+# Call with matching arguments
+agent = Agent()
+result = agent(question="What is Python?", context="Programming languages")
 ```
 
-**Rules:**
-- `initial_input` is optional (can call with no arguments)
-- `final_output` is required for single-turn mode
-- `final_output` is optional for multi-turn mode (can return `None`)
+If `initial_input` is `None`, the module accepts any keyword arguments.
 
-### Tools
+### final_output
 
-Tools are functions the LLM can call. Define them with the `@tool` decorator:
+Pydantic model defining the output schema. The LLM must call `__finish__` with data matching this schema.
+
+```python
+class Output(BaseModel):
+    answer: str = Field(description="The answer")
+    confidence: float = Field(description="0 to 1")
+    sources: list[str] = Field(description="Sources consulted")
+
+class Agent(Module):
+    final_output = Output
+```
+
+For single-turn modules, `final_output` is required. For multi-turn modules, it's optional - set to `None` if you don't need structured output.
+
+```python
+class ToolExecutor(Module):
+    """Execute tools without returning structured output."""
+    max_steps = 5
+    final_output = None  # No structured output needed
+    tools = [log_action, save_data]
+```
+
+## Tools
+
+Tools are functions the LLM can call. Define them with the `@tool` decorator or as methods.
+
+### Standalone Tools
 
 ```python
 from acorn import tool
@@ -194,143 +258,188 @@ def search_web(query: str, max_results: int = 5) -> list[dict]:
     """Search the web for information.
     
     Args:
-        query: The search query
+        query: Search query
         max_results: Maximum results to return
     """
-    return search_api(query, max_results)
+    # Implementation
+    return results
 
 class Agent(Module):
     tools = [search_web]
 ```
 
-**As methods:**
+### Method Tools
+
+Tools defined as methods have access to `self`:
+
 ```python
 class Agent(Module):
     @tool
-    def search_web(self, query: str) -> list[dict]:
-        """Search the web."""
-        # Has access to self
-        return self.search_api(query)
+    def search(self, query: str) -> list[str]:
+        """Search using the agent's configuration."""
+        # Access module state via self
+        return self._search_engine.search(query)
 ```
 
-Tool schemas are auto-generated from:
+### Tool Schema Generation
+
+Acorn generates tool schemas from:
 - Function name → tool name
 - Docstring first line → description
 - Type hints → parameter types
 - Docstring Args section → parameter descriptions
 - Default values → optional parameters
 
-### Advanced Settings
+### The __finish__ Tool
 
-**Parse retries:**
+Every module automatically has a `__finish__` tool. When the LLM calls it, the module validates the arguments against `final_output` and returns the result.
+
+The LLM sees `__finish__` as a regular tool with parameters matching your output schema.
+
+## Advanced Configuration
+
+### metadata
+
+LiteLLM metadata for tracking and logging.
+
 ```python
-max_parse_retries = 2  # Retry validation failures
+metadata = {
+    "user_id": "user_123",
+    "session_id": "session_456",
+    "tags": ["production", "research"]
+}
 ```
 
-When the LLM's output doesn't match the schema, acorn retries with an error message.
+### cache
 
-**Streaming:**
+Provider-level prompt caching to reduce latency and costs.
+
 ```python
-stream = True  # Enable streaming responses
+# Enable default caching (system message + first user message)
+cache = True
 
-def on_stream(self, chunk):
-    if chunk.content:
-        print(chunk.content, end="")
-```
+# Disable caching
+cache = False
 
-**Metadata:**
-```python
-metadata = {"user_id": "123", "session": "abc"}  # LiteLLM tracking
-```
-
-**Caching:**
-```python
-cache = True  # Enable prompt caching (provider-dependent)
-
-# Or custom cache points:
+# Custom cache breakpoints
 cache = [
     {"location": "message", "role": "system"},
     {"location": "message", "index": 0}
 ]
 ```
 
-**XML configuration:**
+Each cache entry specifies where to insert a cache breakpoint:
+- `location`: Must be `"message"`
+- `role`: Message role to cache (`"system"`, `"user"`, etc.)
+- `index`: Message index to cache (0-based)
+
+### XML Configuration
+
+Control XML serialization for input/output (used internally when communicating with the LLM).
+
 ```python
-xml_input_root = "input"    # Root tag for input XML
-xml_output_root = "output"  # Root tag for output XML
+xml_input_root = "input"   # Root element for input
+xml_output_root = "output" # Root element for output
+```
+
+You typically don't need to change these unless you have specific prompt engineering requirements.
+
+### max_parse_retries
+
+Number of times to retry when output validation fails.
+
+```python
+max_parse_retries = 2  # Default
+max_parse_retries = 5  # More retries for complex schemas
+```
+
+When the LLM's output doesn't match the schema, acorn sends an error message and asks it to try again.
+
+### stream
+
+Enable streaming responses. Requires defining an `on_stream` callback.
+
+```python
+class Agent(Module):
+    stream = True
+    
+    def on_stream(self, chunk):
+        if chunk.content:
+            print(chunk.content, end="", flush=True)
+        if chunk.partial:
+            # Access partial structured output as it streams
+            print(f"Partial: {chunk.partial}")
 ```
 
 ## Lifecycle Hooks
 
-Customize behavior at key points in execution:
-
 ### on_step
 
-Called after each step in multi-turn mode. Inspect and modify the step:
+Called after each step in multi-turn mode. Use it to observe or modify behavior.
 
 ```python
 def on_step(self, step):
+    """Called after each agentic loop iteration."""
     print(f"Step {step.counter}")
     print(f"Tools called: {[tc.name for tc in step.tool_calls]}")
     
-    # Modify tool results before next call
-    for result in step.tool_results:
-        if len(str(result.output)) > 1000:
-            result.output = str(result.output)[:1000] + "..."
+    # Modify configuration for next step
+    if step.counter > 5:
+        step.temperature = 0.3  # Reduce randomness
     
-    # Add/remove tools dynamically
-    if step.counter > 3:
-        step.remove_tool("expensive_tool")
-    
-    # Early termination
+    # Add or remove tools
     if some_condition:
-        step.finish(answer="Done early", sources=[])
+        step.add_tool(new_tool)
+        step.remove_tool("old_tool")
     
-    # Adjust parameters for next iteration
-    step.temperature = 0.5
+    # Force completion
+    if error_condition:
+        step.finish(answer="Error occurred", confidence=0.0, sources=[])
     
     return step
 ```
 
-**What you can do:**
-- Inspect tool calls and results
-- Modify tool results (affects what LLM sees)
-- Add or remove tools
-- Change model parameters
-- Force early termination with `step.finish()`
-- Access and modify conversation history via `self.history`
+The `step` object provides:
+- `counter`: Step number (1-indexed)
+- `tool_calls`: List of `ToolCall` objects
+- `tool_results`: List of `ToolResult` objects (mutable)
+- `model`, `temperature`, `max_tokens`: Configuration (mutable)
+- `add_tool(tool)`: Add a tool for remaining steps
+- `remove_tool(name)`: Remove a tool by name
+- `finish(**kwargs)`: Force completion with output
 
 ### on_stream
 
-Called during streaming responses (when `stream = True`):
+Called for each chunk when streaming is enabled.
 
 ```python
 def on_stream(self, chunk):
+    """Handle streaming responses."""
     # Text content (chain-of-thought)
     if chunk.content:
         print(chunk.content, end="", flush=True)
     
-    # Partial structured output
+    # Partial structured output (as __finish__ streams)
     if chunk.partial:
         if chunk.partial.answer:
             print(f"\nAnswer: {chunk.partial.answer}")
     
-    # Completion
+    # Check if done
     if chunk.done:
-        print("\nDone!")
+        print("\nStreaming complete")
 ```
 
 ## History
 
-Access the full conversation history:
+The conversation history is accessible via `self.history`. It's a list of message dictionaries that you can read and modify.
 
 ```python
 def on_step(self, step):
     # Read history
     for msg in self.history:
-        print(f"{msg['role']}: {msg.get('content', '')[:50]}")
+        print(f"{msg['role']}: {msg['content'][:50]}")
     
-    # Modify history (affects next LLM call)
+    # Add a message
     self.history.append({
         "role": "user",
         "content": "Remember to cite sources."
@@ -343,19 +452,20 @@ def on_step(self, step):
     return step
 ```
 
-History is a list of message dicts:
+History format:
+
 ```python
 [
     {"role": "system", "content": "..."},
     {"role": "user", "content": "..."},
     {"role": "assistant", "content": "...", "tool_calls": [...]},
-    {"role": "tool", "tool_call_id": "...", "content": "..."}
+    {"role": "tool", "tool_call_id": "...", "content": "..."},
 ]
 ```
 
 ## Examples
 
-### Example 1: Single-Turn Classifier
+### Example 1: Simple Classifier
 
 ```python
 from pydantic import BaseModel, Field
@@ -365,234 +475,147 @@ class Input(BaseModel):
     text: str
 
 class Output(BaseModel):
-    category: str = Field(description="news, blog, or social")
+    category: str
     confidence: float
 
 class Classifier(Module):
     """Classify text into categories."""
-    
     initial_input = Input
     final_output = Output
-    temperature = 0.3
+    temperature = 0.2
 
 classifier = Classifier()
-result = classifier(text="Breaking: New discovery announced...")
-print(result.category)  # "news"
+result = classifier(text="This movie was amazing!")
 ```
 
-### Example 2: Multi-Turn Research Agent
+### Example 2: Research Agent with Tools
 
 ```python
 from acorn import Module, tool
-from pydantic import BaseModel, Field
 
-class Output(BaseModel):
-    summary: str
-    key_facts: list[str]
-    sources: list[str]
+@tool
+def search_web(query: str) -> list[str]:
+    """Search the web."""
+    return ["result1", "result2"]
+
+@tool
+def read_file(path: str) -> str:
+    """Read a file."""
+    return open(path).read()
 
 class Researcher(Module):
     """Research topics using available tools."""
-    
-    final_output = Output
     max_steps = 10
+    tools = [search_web, read_file]
     
-    @tool
-    def search(self, query: str) -> list[str]:
-        """Search for information."""
-        return ["fact1", "fact2", "fact3"]
+    class Input(BaseModel):
+        topic: str
     
-    @tool
-    def analyze(self, text: str) -> dict:
-        """Analyze text for key information."""
-        return {"insights": ["insight1", "insight2"]}
+    class Output(BaseModel):
+        summary: str
+        sources: list[str]
+    
+    initial_input = Input
+    final_output = Output
     
     def on_step(self, step):
         print(f"Step {step.counter}: {[tc.name for tc in step.tool_calls]}")
         return step
 
 researcher = Researcher()
-result = researcher()
-print(result.summary)
+result = researcher(topic="Python history")
 ```
 
-### Example 3: Dynamic Tool Management
+### Example 3: Streaming Responses
 
 ```python
-class AdaptiveAgent(Module):
-    """Agent that adapts tools based on progress."""
+class StreamingAgent(Module):
+    """Agent with streaming enabled."""
+    stream = True
     
-    final_output = Output
-    max_steps = 15
-    
-    tools = [basic_search, calculate]
-    
-    def on_step(self, step):
-        # Add advanced tools after initial exploration
-        if step.counter == 3:
-            step.add_tool(advanced_search)
-            step.add_tool(data_analysis)
-        
-        # Remove expensive tools near the end
-        if step.counter >= 12:
-            step.remove_tool("advanced_search")
-            step.temperature = 0.3  # More focused
-        
-        return step
-```
+    def on_stream(self, chunk):
+        if chunk.content:
+            print(chunk.content, end="", flush=True)
+        if chunk.done:
+            print("\n[Done]")
 
-### Example 4: History Management
-
-```python
-class ConversationAgent(Module):
-    """Agent with conversation memory management."""
-    
-    final_output = Output
-    max_steps = 20
-    
-    def on_step(self, step):
-        # Keep only recent history to manage context length
-        if len(self.history) > 30:
-            # Keep system prompt + last 25 messages
-            system_msg = self.history[0]
-            recent = self.history[-25:]
-            self.history = [system_msg] + recent
-        
-        # Add periodic reminders
-        if step.counter % 5 == 0:
-            self.history.append({
-                "role": "user",
-                "content": "Remember to stay focused on the main topic."
-            })
-        
-        return step
+agent = StreamingAgent()
+result = agent(question="Explain Python")
 ```
 
 ## Common Patterns
 
-### Validation and Error Handling
-
-```python
-from acorn import ParseError
-
-try:
-    result = module(input_data="...")
-except ParseError as e:
-    print(f"Output validation failed: {e}")
-    print(f"Raw output: {e.raw_output}")
-```
-
-### No Input Schema
-
-For modules that don't need structured input:
-
-```python
-class SimpleAgent(Module):
-    """Agent with no input schema."""
-    
-    # No initial_input defined
-    final_output = Output
-    max_steps = 5
-
-agent = SimpleAgent()
-result = agent()  # No arguments needed
-```
-
-### No Output Schema (Multi-Turn Only)
-
-For side-effect-focused agents:
-
-```python
-class TaskExecutor(Module):
-    """Execute tasks without returning structured output."""
-    
-    max_steps = 10
-    final_output = None  # No structured output
-    
-    @tool
-    def execute_task(self, task: str) -> str:
-        """Execute a task."""
-        perform_action(task)
-        return "Done"
-
-executor = TaskExecutor()
-result = executor()  # Returns None after executing tools
-assert result is None
-```
-
-### Conditional Early Exit
+### Reducing Temperature Over Time
 
 ```python
 def on_step(self, step):
-    # Check if we have enough information
-    search_count = sum(1 for tc in step.tool_calls if tc.name == "search")
-    
-    if search_count >= 3:
-        # We've searched enough, finish now
+    if step.counter > 5:
+        step.temperature = 0.3  # More focused after initial exploration
+    return step
+```
+
+### Conditional Tool Availability
+
+```python
+def on_step(self, step):
+    # Remove expensive tools after step 3
+    if step.counter > 3:
+        step.remove_tool("expensive_api_call")
+    return step
+```
+
+### Managing Context Length
+
+```python
+def on_step(self, step):
+    # Keep system message + last 30 messages
+    if len(self.history) > 31:
+        self.history = self.history[:1] + self.history[-30:]
+    return step
+```
+
+### Truncating Large Tool Results
+
+```python
+def on_step(self, step):
+    for result in step.tool_results:
+        output_str = str(result.output)
+        if len(output_str) > 5000:
+            result.output = output_str[:5000] + "... (truncated)"
+    return step
+```
+
+### Early Termination
+
+```python
+def on_step(self, step):
+    if error_detected:
         step.finish(
-            answer="Based on 3 searches...",
-            sources=["source1", "source2", "source3"]
+            answer="Unable to complete task",
+            confidence=0.0,
+            sources=[]
         )
-    
     return step
 ```
 
 ## Best Practices
 
-**Use descriptive field descriptions:**
+**Use descriptive field descriptions**: The LLM sees these descriptions and uses them to understand what to provide.
+
 ```python
 class Output(BaseModel):
-    answer: str = Field(description="Clear, concise answer to the question")
+    answer: str = Field(description="Detailed answer to the question")
     confidence: float = Field(description="Confidence score between 0 and 1")
 ```
 
-Good descriptions help the LLM understand what you want.
+**Set appropriate max_steps**: Too low and the agent can't complete complex tasks. Too high and costs increase.
 
-**Set appropriate max_steps:**
-- Single-turn: `max_steps = None` (default)
-- Simple multi-turn: `max_steps = 5`
-- Complex workflows: `max_steps = 15-20`
+**Use temperature wisely**: Lower for factual tasks (0.0-0.3), higher for creative tasks (0.7-1.0).
 
-**Use lower temperature for structured tasks:**
-```python
-class DataExtractor(Module):
-    temperature = 0.3  # More deterministic
-```
+**Monitor with on_step**: Track what the agent is doing, especially during development.
 
-**Manage context length in long conversations:**
-```python
-def on_step(self, step):
-    if len(self.history) > 50:
-        self.history = self.history[:1] + self.history[-40:]
-    return step
-```
+**Validate tool outputs**: Use `on_step` to truncate or clean tool results before the next LLM call.
 
-**Provide clear tool descriptions:**
-```python
-@tool
-def search(query: str, limit: int = 5) -> list:
-    """Search the knowledge base for relevant documents.
-    
-    Args:
-        query: Natural language search query
-        limit: Maximum number of documents to return
-    """
-```
+**Cache system prompts**: Use `cache = True` or custom cache breakpoints to reduce costs for repeated calls.
 
-**Use on_step for debugging:**
-```python
-def on_step(self, step):
-    print(f"\n=== Step {step.counter} ===")
-    for tc in step.tool_calls:
-        print(f"Tool: {tc.name}")
-        print(f"Args: {tc.arguments}")
-    for tr in step.tool_results:
-        print(f"Result: {tr.output}")
-    return step
-```
-
-## Next Steps
-
-- Read [Getting Started](getting-started.md) for complete examples
-- Check the API reference in `specs/api-reference.md` for detailed attribute documentation
-- See `specs/core-concepts.md` for deeper conceptual explanations
+**Handle errors gracefully**: Use `max_parse_retries` and consider error handling in `on_step`.
