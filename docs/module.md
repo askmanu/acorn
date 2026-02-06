@@ -123,6 +123,24 @@ max_steps = 5     # Up to 5 iterations
 max_steps = 20    # Longer tasks
 ```
 
+### cache
+
+Enable provider-level prompt caching to reduce latency and cost:
+
+```python
+class MyModule(Module):
+    cache = True  # Cache system + first user message
+```
+
+Or specify custom cache points:
+
+```python
+cache = [
+    {"location": "message", "role": "system"},
+    {"location": "message", "index": 0}
+]
+```
+
 ## Schemas
 
 Define what goes in and what comes out using Pydantic models.
@@ -198,7 +216,7 @@ class MyModule(Module):
 **3. File path**
 
 ```python
-from pathlib import Path
+from acorn import Path
 
 class MyModule(Module):
     system_prompt = Path("prompts/assistant.md")
@@ -380,24 +398,6 @@ class MyModule(Module):
         "user_id": "user123",
         "session_id": "session456"
     }
-```
-
-### cache
-
-Enable provider-level prompt caching to reduce latency and cost:
-
-```python
-class MyModule(Module):
-    cache = True  # Cache system + first user message
-```
-
-Or specify custom cache points:
-
-```python
-cache = [
-    {"location": "message", "role": "system"},
-    {"location": "message", "index": 0}
-]
 ```
 
 ### xml_input_root / xml_output_root
