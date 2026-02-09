@@ -82,6 +82,10 @@ print(f"Words: {result.word_count}")
 from pydantic import BaseModel, Field
 from acorn import Module, tool
 
+class Input(BaseModel):
+    topic: str = Field(description="Research topic")
+    depth: str = Field(default="shallow", description="Research depth")
+
 class Output(BaseModel):
     findings: str = Field(description="Summary of findings")
     sources: list[str] = Field(description="Sources consulted")
@@ -89,6 +93,7 @@ class Output(BaseModel):
 class ResearchAgent(Module):
     """Research assistant with tools."""
 
+    initial_input = Input
     max_steps = 5  # Enable agentic loop
     final_output = Output
 
@@ -197,7 +202,7 @@ pytest --cov=acorn
 pytest tests/test_agentic_loop.py -v
 ```
 
-**Current status:** 201 tests passing, 85% coverage
+**Current status:** 128 tests passing, 90% coverage
 
 ---
 
@@ -210,7 +215,7 @@ pytest tests/test_agentic_loop.py -v
 
 ## 🛣️ Roadmap
 
-### ✅ Completed (v0.1)
+### ✅ Completed
 - Single-turn execution
 - Multi-turn agentic loops
 - Tool calling with auto-schema generation
@@ -221,7 +226,7 @@ pytest tests/test_agentic_loop.py -v
 - Forced termination strategies
 - Provider caching
 
-### 📋 Planned (v0.2)
+### 📋 Planned
 - Branching workflows
 - Async support
 
