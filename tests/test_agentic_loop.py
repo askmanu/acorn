@@ -444,3 +444,69 @@ def test_agentic_loop_remove_tool():
         result = mod()
 
         assert result.result == "done"
+
+
+def test_agentic_loop_retries_on_no_tool_calls():
+    """Test that agentic loop retries when model returns no tool calls."""
+    @tool
+    def search(query: str) -> str:
+        """Search for information."""
+        return f"Results for: {query}"
+
+    class Output(BaseModel):
+        answer: str
+
+    class RetryModule(Module):
+        max_steps = 5
+        tools = [search]
+        final_output = Output
+
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        # Step 1: No tool calls (text only)
+        # Step 2 (retry): Calls search tool
+        # Step 3: Calls __finish__
+        search_call = create_tool_call("search", {"query": "test"}, "call_1")
+        finish_call = create_tool_call("__finish__", {"answer": "done"}, "call_2")
+
+        mock_completion.side_effect = [
+            MockResponse(content="Let me think about this..."),
+            MockResponse(tool_calls=[search_call]),
+            MockResponse(tool_calls=[finish_call])
+        ]
+
+        mod = RetryModule()
+        result = mod()
+
+        assert result.answer == "done"
+        # Verify reminder message was appended to history
+        reminder_msgs = [
+            m for m in mod.history
+            if m.get("role") == "user" and "must respond by calling" in m.get("content", "")
+        ]
+        assert len(reminder_msgs) == 1
+
+
+def test_agentic_loop_fails_after_max_retries_no_tool_calls():
+    """Test that agentic loop raises error after max_parse_retries with no tool calls."""
+    @tool
+    def search(query: str) -> str:
+        """Search for information."""
+        return f"Results for: {query}"
+
+    class Output(BaseModel):
+        answer: str
+
+    class RetryFailModule(Module):
+        max_steps = 10
+        max_parse_retries = 2
+        tools = [search]
+        final_output = Output
+
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        # Always return no tool calls
+        mock_completion.return_value = MockResponse(content="Just thinking...")
+
+        mod = RetryFailModule()
+
+        with pytest.raises(AcornError, match="No tool calls in agentic loop step after 2 retries"):
+            mod()

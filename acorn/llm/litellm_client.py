@@ -2,6 +2,8 @@
 
 import litellm
 import json
+import re
+from uuid import uuid4
 from typing import Any, Iterator, Callable
 from pydantic import BaseModel
 from acorn.types import StreamChunk
@@ -129,6 +131,64 @@ def call_llm(
         raise Exception(f"LLM call failed: {e}") from e
 
 
+def _extract_embedded_tool_calls(content: str | None, reasoning_content: str | None = None) -> list[dict]:
+    """Extract tool calls embedded as XML in content or reasoning_content.
+
+    Some reasoning models embed tool calls as XML text instead of using
+    the native tool calling API. This function extracts them.
+
+    Args:
+        content: The response content text
+        reasoning_content: The reasoning content text
+
+    Returns:
+        List of tool call dicts in standard format, or empty list
+    """
+    tool_calls = []
+    combined = ""
+    if content and isinstance(content, str):
+        combined += content
+    if reasoning_content and isinstance(reasoning_content, str):
+        combined += reasoning_content
+
+    if not combined:
+        return []
+
+    # Find all <tool_call>...</tool_call> blocks
+    pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+    matches = pattern.findall(combined)
+
+    for block in matches:
+        try:
+            # Extract tool name: first line of text content (non-tag)
+            name_match = re.search(r"^\s*(\w+)", block.strip())
+            if not name_match:
+                continue
+            tool_name = name_match.group(1)
+
+            # Extract arguments from <arg_key>...</arg_key><arg_value>...</arg_value> pairs
+            keys = re.findall(r"<arg_key>(.*?)</arg_key>", block, re.DOTALL)
+            values = re.findall(r"<arg_value>(.*?)</arg_value>", block, re.DOTALL)
+
+            arguments = {}
+            for k, v in zip(keys, values):
+                arguments[k.strip()] = v.strip()
+
+            tool_calls.append({
+                "id": f"embedded_{uuid4().hex[:8]}",
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": json.dumps(arguments),
+                }
+            })
+        except Exception:
+            # Skip malformed blocks
+            continue
+
+    return tool_calls
+
+
 def _response_to_dict(response: Any) -> dict:
     """Convert LiteLLM response to standardized dict format.
 
@@ -146,6 +206,11 @@ def _response_to_dict(response: Any) -> dict:
         "content": getattr(message, "content", None),
     }
 
+    # Add reasoning_content if present
+    reasoning_content = getattr(message, "reasoning_content", None)
+    if reasoning_content and isinstance(reasoning_content, str):
+        result["reasoning_content"] = reasoning_content
+
     # Add tool calls if present
     if hasattr(message, "tool_calls") and message.tool_calls:
         result["tool_calls"] = []
@@ -158,6 +223,15 @@ def _response_to_dict(response: Any) -> dict:
                     "arguments": tc.function.arguments,
                 }
             })
+
+    # Fallback: extract embedded tool calls from content/reasoning_content
+    if not result.get("tool_calls"):
+        embedded = _extract_embedded_tool_calls(
+            getattr(message, "content", None),
+            reasoning_content
+        )
+        if embedded:
+            result["tool_calls"] = embedded
 
     # Add finish reason
     result["finish_reason"] = response.choices[0].finish_reason
@@ -181,6 +255,7 @@ def _handle_streaming_response(
         Accumulated response dictionary
     """
     accumulated_content = ""
+    accumulated_reasoning_content = ""
     accumulated_tool_calls = []
     finish_reason = None
 
@@ -197,6 +272,10 @@ def _handle_streaming_response(
             # Call callback with content chunk
             stream_chunk = StreamChunk(content=delta.content, done=False)
             on_stream(stream_chunk)
+
+        # Handle reasoning_content streaming
+        if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+            accumulated_reasoning_content += delta.reasoning_content
 
         # Handle tool call streaming
         if hasattr(delta, "tool_calls") and delta.tool_calls:
@@ -268,12 +347,24 @@ def _handle_streaming_response(
         "finish_reason": finish_reason
     }
 
+    # Add reasoning_content if any
+    if accumulated_reasoning_content:
+        result["reasoning_content"] = accumulated_reasoning_content
+
     # Add tool calls if any
     if accumulated_tool_calls:
         result["tool_calls"] = accumulated_tool_calls
 
-    return result
+    # Fallback: extract embedded tool calls from content/reasoning_content
+    if not result.get("tool_calls"):
+        embedded = _extract_embedded_tool_calls(
+            accumulated_content if accumulated_content else None,
+            accumulated_reasoning_content if accumulated_reasoning_content else None
+        )
+        if embedded:
+            result["tool_calls"] = embedded
 
+    return result
 
 def _accumulate_streaming_response(response: Iterator) -> dict:
     """Accumulate streaming response without callback.
@@ -285,6 +376,7 @@ def _accumulate_streaming_response(response: Iterator) -> dict:
         Accumulated response dictionary
     """
     accumulated_content = ""
+    accumulated_reasoning_content = ""
     accumulated_tool_calls = []
     finish_reason = None
 
@@ -298,6 +390,10 @@ def _accumulate_streaming_response(response: Iterator) -> dict:
         # Handle content
         if hasattr(delta, "content") and delta.content:
             accumulated_content += delta.content
+
+        # Handle reasoning_content
+        if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+            accumulated_reasoning_content += delta.reasoning_content
 
         # Handle tool calls
         if hasattr(delta, "tool_calls") and delta.tool_calls:
@@ -336,9 +432,22 @@ def _accumulate_streaming_response(response: Iterator) -> dict:
         "finish_reason": finish_reason
     }
 
+    # Add reasoning_content if any
+    if accumulated_reasoning_content:
+        result["reasoning_content"] = accumulated_reasoning_content
+
     # Add tool calls if any
     if accumulated_tool_calls:
         result["tool_calls"] = accumulated_tool_calls
+
+    # Fallback: extract embedded tool calls from content/reasoning_content
+    if not result.get("tool_calls"):
+        embedded = _extract_embedded_tool_calls(
+            accumulated_content if accumulated_content else None,
+            accumulated_reasoning_content if accumulated_reasoning_content else None
+        )
+        if embedded:
+            result["tool_calls"] = embedded
 
     return result
 

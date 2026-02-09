@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from pydantic import BaseModel
 
-from acorn.llm.litellm_client import call_llm, _handle_streaming_response, _parse_partial_json
+from acorn.llm.litellm_client import call_llm, _handle_streaming_response, _parse_partial_json, _extract_embedded_tool_calls, _response_to_dict
 from acorn.types import StreamChunk
 
 
@@ -425,3 +425,141 @@ def test_call_llm_with_cache_custom():
         # Verify cache_control_injection_points was forwarded as-is
         call_args = mock_completion.call_args
         assert call_args.kwargs["cache_control_injection_points"] == custom_cache
+
+
+# Tests for _extract_embedded_tool_calls
+
+def test_extract_embedded_single_tool_call():
+    """Test extracting a single embedded tool call from content."""
+    content = """I'll search for that.
+<tool_call>
+search_web
+<arg_key>query</arg_key><arg_value>python async</arg_value>
+</tool_call>"""
+    result = _extract_embedded_tool_calls(content)
+    assert len(result) == 1
+    assert result[0]["type"] == "function"
+    assert result[0]["function"]["name"] == "search_web"
+    assert result[0]["id"].startswith("embedded_")
+    import json
+    args = json.loads(result[0]["function"]["arguments"])
+    assert args["query"] == "python async"
+
+
+def test_extract_embedded_multiple_tool_calls():
+    """Test extracting multiple embedded tool calls."""
+    content = """<tool_call>
+search_web
+<arg_key>query</arg_key><arg_value>topic A</arg_value>
+</tool_call>
+<tool_call>
+calculate
+<arg_key>expression</arg_key><arg_value>2+2</arg_value>
+<arg_key>precision</arg_key><arg_value>2</arg_value>
+</tool_call>"""
+    result = _extract_embedded_tool_calls(content)
+    assert len(result) == 2
+    assert result[0]["function"]["name"] == "search_web"
+    assert result[1]["function"]["name"] == "calculate"
+    import json
+    args = json.loads(result[1]["function"]["arguments"])
+    assert args["expression"] == "2+2"
+    assert args["precision"] == "2"
+
+
+def test_extract_embedded_from_reasoning_content():
+    """Test extracting tool calls from reasoning_content field."""
+    reasoning = """Let me use the tool.
+<tool_call>
+__finish__
+<arg_key>answer</arg_key><arg_value>42</arg_value>
+</tool_call>"""
+    result = _extract_embedded_tool_calls(None, reasoning)
+    assert len(result) == 1
+    assert result[0]["function"]["name"] == "__finish__"
+
+
+def test_extract_embedded_no_matches():
+    """Test that no tool_call tags returns empty list."""
+    assert _extract_embedded_tool_calls("Just regular text") == []
+    assert _extract_embedded_tool_calls(None, None) == []
+    assert _extract_embedded_tool_calls("", "") == []
+
+
+def test_extract_embedded_malformed_xml():
+    """Test graceful handling of malformed tool_call blocks."""
+    content = """<tool_call>
+</tool_call>
+<tool_call>
+search_web
+<arg_key>query</arg_key><arg_value>valid</arg_value>
+</tool_call>"""
+    result = _extract_embedded_tool_calls(content)
+    # First block is malformed (no tool name), should be skipped
+    assert len(result) == 1
+    assert result[0]["function"]["name"] == "search_web"
+
+
+def test_response_to_dict_surfaces_reasoning_content():
+    """Test that reasoning_content is included in response dict."""
+    mock_message = MagicMock()
+    mock_message.content = "Hello"
+    mock_message.reasoning_content = "I thought about this carefully"
+    mock_message.tool_calls = []
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message = mock_message
+    mock_response.choices[0].finish_reason = "stop"
+
+    result = _response_to_dict(mock_response)
+    assert result["reasoning_content"] == "I thought about this carefully"
+    assert result["content"] == "Hello"
+
+
+def test_response_to_dict_fallback_embedded():
+    """Test that embedded tool calls are extracted when no native calls present."""
+    mock_message = MagicMock()
+    mock_message.content = """<tool_call>
+__finish__
+<arg_key>result</arg_key><arg_value>done</arg_value>
+</tool_call>"""
+    mock_message.reasoning_content = None
+    mock_message.tool_calls = []
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message = mock_message
+    mock_response.choices[0].finish_reason = "stop"
+
+    result = _response_to_dict(mock_response)
+    assert "tool_calls" in result
+    assert len(result["tool_calls"]) == 1
+    assert result["tool_calls"][0]["function"]["name"] == "__finish__"
+
+
+def test_response_to_dict_native_takes_precedence():
+    """Test that native tool calls take precedence over embedded ones."""
+    mock_tc = MagicMock()
+    mock_tc.id = "call_123"
+    mock_tc.function.name = "search"
+    mock_tc.function.arguments = '{"q": "test"}'
+
+    mock_message = MagicMock()
+    mock_message.content = """<tool_call>
+__finish__
+<arg_key>result</arg_key><arg_value>done</arg_value>
+</tool_call>"""
+    mock_message.reasoning_content = None
+    mock_message.tool_calls = [mock_tc]
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message = mock_message
+    mock_response.choices[0].finish_reason = "stop"
+
+    result = _response_to_dict(mock_response)
+    assert len(result["tool_calls"]) == 1
+    # Should be the native call, not the embedded one
+    assert result["tool_calls"][0]["id"] == "call_123"
+    assert result["tool_calls"][0]["function"]["name"] == "search"

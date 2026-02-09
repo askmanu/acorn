@@ -5,6 +5,7 @@ import inspect
 from pathlib import Path
 from typing import Any
 from pydantic import BaseModel
+import litellm
 
 from acorn.exceptions import AcornError, ParseError, ToolConflictError
 from acorn.serialization import pydantic_to_xml
@@ -133,6 +134,11 @@ class Module:
                 if reasoning is not True and reasoning not in ["low", "medium", "high"]:
                     raise ValueError(
                         f"reasoning must be True or one of 'low', 'medium', 'high', got: {reasoning}"
+                    )
+                if not litellm.supports_reasoning(model=self.model["id"]):
+                    raise ValueError(
+                        f"Model '{self.model['id']}' does not support reasoning. "
+                        f"Remove the 'reasoning' parameter or use a model that supports reasoning."
                     )
 
     def _validate_cache_config(self):
@@ -276,13 +282,49 @@ class Module:
             "role": "assistant",
             "content": response.get("content"),
         }
+        if response.get("reasoning_content"):
+            assistant_message["reasoning_content"] = response["reasoning_content"]
         if response.get("tool_calls"):
             assistant_message["tool_calls"] = response["tool_calls"]
         self.history.append(assistant_message)
 
-        # 6. Handle response
-        if not response.get("tool_calls"):
-            raise AcornError("No tool called in single-turn mode")
+        # 6. Handle response - retry if no tool calls
+        no_tool_call_retries = 0
+        while not response.get("tool_calls"):
+            no_tool_call_retries += 1
+            if no_tool_call_retries > self.max_parse_retries:
+                raise AcornError(
+                    f"No tool called in single-turn mode after {self.max_parse_retries} retries"
+                )
+            self.history.append({
+                "role": "user",
+                "content": (
+                    "You must respond by calling one of the available tools. "
+                    "Use the provided tools to take action, or call __finish__ "
+                    "with the appropriate arguments to complete the task."
+                )
+            })
+            response = call_llm(
+                messages=self.history,
+                model=self.model,
+                tools=tool_schemas,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=self.stream,
+                on_stream=on_stream_callback,
+                final_output_schema=self.final_output,
+                metadata=self.metadata,
+                cache=self.cache,
+            )
+            assistant_message = {
+                "role": "assistant",
+                "content": response.get("content"),
+            }
+            if response.get("reasoning_content"):
+                assistant_message["reasoning_content"] = response["reasoning_content"]
+            if response.get("tool_calls"):
+                assistant_message["tool_calls"] = response["tool_calls"]
+            self.history.append(assistant_message)
 
         tool_call = response["tool_calls"][0]
 
@@ -338,6 +380,7 @@ class Module:
 
         # Loop state
         step_count = 0
+        no_tool_call_retries = 0
 
         while step_count < self.max_steps:
             step_count += 1
@@ -366,6 +409,10 @@ class Module:
                 "content": response.get("content"),
             }
 
+            # Add reasoning_content if present
+            if response.get("reasoning_content"):
+                assistant_message["reasoning_content"] = response["reasoning_content"]
+
             # Add tool calls to assistant message if present
             if response.get("tool_calls"):
                 assistant_message["tool_calls"] = response["tool_calls"]
@@ -376,8 +423,20 @@ class Module:
             tool_calls = response.get("tool_calls", [])
 
             if not tool_calls:
-                # No tool calls - this is an error in agentic mode
-                raise AcornError("No tool calls in agentic loop step")
+                no_tool_call_retries += 1
+                if no_tool_call_retries > self.max_parse_retries:
+                    raise AcornError(
+                        f"No tool calls in agentic loop step after {self.max_parse_retries} retries"
+                    )
+                self.history.append({
+                    "role": "user",
+                    "content": (
+                        "You must respond by calling one of the available tools. "
+                        "Use the provided tools to take action, or call __finish__ "
+                        "with the appropriate arguments to complete the task."
+                    )
+                })
+                continue
 
             # Process tool calls
             tool_call_objs = []
@@ -426,6 +485,9 @@ class Module:
                     "content": str(tool_result.output) if tool_result.error is None else f"Error: {tool_result.error}"
                 }
                 self.history.append(result_msg)
+
+            # Reset no-tool-call retry counter after successful tool processing
+            no_tool_call_retries = 0
 
             # Build Step object
             step = Step(

@@ -121,7 +121,7 @@ def test_single_turn_no_tool_call():
 
         mod = TestModule()
 
-        with pytest.raises(AcornError, match="No tool called in single-turn mode"):
+        with pytest.raises(AcornError, match="No tool called in single-turn mode after"):
             mod()
 
 
@@ -233,3 +233,32 @@ def test_multi_turn_is_implemented():
     # Should not raise NotImplementedError anymore
     assert mod.max_steps == 5
     # Actual execution requires mocked LLM calls (tested in test_agentic_loop.py)
+
+
+def test_single_turn_retries_on_no_tool_calls():
+    """Test that single-turn mode retries when model returns no tool calls."""
+    class Output(BaseModel):
+        result: str
+
+    class RetryModule(Module):
+        final_output = Output
+
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        # First call: no tool calls, second call: __finish__
+        finish_call = create_tool_call("__finish__", {"result": "success"})
+
+        mock_completion.side_effect = [
+            MockResponse(content="Let me think..."),
+            MockResponse(tool_calls=[finish_call])
+        ]
+
+        mod = RetryModule()
+        result = mod()
+
+        assert result.result == "success"
+        # Verify reminder message was appended to history
+        reminder_msgs = [
+            m for m in mod.history
+            if m.get("role") == "user" and "must respond by calling" in m.get("content", "")
+        ]
+        assert len(reminder_msgs) == 1
