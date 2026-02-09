@@ -37,18 +37,18 @@ pip install -e .
 ### Single-Turn Example
 
 ```python
-from pydantic import BaseModel
-from acorn import module
+from pydantic import BaseModel, Field
+from acorn import Module
 
 class Input(BaseModel):
-    text: str
-    max_words: int = 100
+    text: str = Field(description="The text to summarize")
+    max_words: int = Field(default=100, description="Maximum words in summary")
 
 class Output(BaseModel):
-    summary: str
-    word_count: int
+    summary: str = Field(description="The concise summary")
+    word_count: int = Field(description="Number of words in summary")
 
-class Summarizer(module):
+class Summarizer(Module):
     """Summarize text concisely."""
 
     initial_input = Input
@@ -68,17 +68,17 @@ print(f"Words: {result.word_count}")
 ### Multi-Turn Agentic Loop
 
 ```python
-from acorn import module, tool
+from pydantic import BaseModel, Field
+from acorn import Module, tool
 
 class Output(BaseModel):
-    findings: str
-    sources: list[str]
+    findings: str = Field(description="Summary of findings")
+    sources: list[str] = Field(description="Sources consulted")
 
-class ResearchAgent(module):
+class ResearchAgent(Module):
     """Research assistant with tools."""
 
     max_steps = 5  # Enable agentic loop
-
     final_output = Output
 
     @tool
@@ -108,7 +108,7 @@ class ResearchAgent(module):
 
 # Use it
 agent = ResearchAgent()
-result = agent()
+result = agent(topic="Large Language Models", depth="shallow")
 ```
 
 ---
@@ -119,6 +119,7 @@ result = agent()
 Base class for LLM agents. Configure with:
 - `model` - LLM to use (default: Claude Sonnet 4.5)
 - `temperature` - Sampling temperature
+- `max_tokens` - Maximum tokens to generate
 - `max_steps` - Max agentic loop iterations (None = single-turn)
 - `initial_input` - Pydantic model for input schema
 - `final_output` - Pydantic model for output schema
