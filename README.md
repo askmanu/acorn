@@ -1,11 +1,11 @@
-# Acorn 🌰
+# acorn 🌰
 
 **LLM agent framework with structured I/O, heavily influenced by DSPy.**
 
 Build AI agents with type-safe inputs and outputs, automatic tool calling, and powerful agentic loops.
 
-[![Tests](https://img.shields.io/badge/tests-128%20passing-brightgreen)](tests/)
-[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-201%20passing-brightgreen)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.10+-blue)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -20,6 +20,8 @@ Build AI agents with type-safe inputs and outputs, automatic tool calling, and p
 - ✅ **Parse Error Recovery** - Automatic retry on validation failures
 - 📊 **Step Callbacks** - Full control over loop behavior
 - 🔌 **LiteLLM Integration** - Works with any LLM provider
+- 🌊 **Streaming Responses** - Real-time output with partial structured updates
+- 💾 **Provider Caching** - Reduce latency and cost with prompt caching
 
 ---
 
@@ -28,10 +30,19 @@ Build AI agents with type-safe inputs and outputs, automatic tool calling, and p
 ### Installation
 
 ```bash
-# Install from source (PyPI package coming soon)
-git clone https://github.com/askmanu/acorn
-cd acorn
-pip install -e .
+pip install acorn
+```
+
+Set your API key:
+
+```bash
+# For Anthropic Claude (default)
+export ANTHROPIC_API_KEY="your-key-here"
+
+# Or for OpenAI
+export OPENAI_API_KEY="your-key-here"
+
+# Or any other LiteLLM-supported provider
 ```
 
 ### Single-Turn Example
@@ -124,6 +135,7 @@ Base class for LLM agents. Configure with:
 - `initial_input` - Pydantic model for input schema
 - `final_output` - Pydantic model for output schema
 - `tools` - List of available tools
+- `cache` - Enable provider-level prompt caching
 
 ### Tools
 Functions the LLM can call:
@@ -185,59 +197,52 @@ pytest --cov=acorn
 pytest tests/test_agentic_loop.py -v
 ```
 
-**Current status:** 128 tests passing, 90% coverage
+**Current status:** 201 tests passing, 85% coverage
 
 ---
 
 ## 📖 Documentation
 
-- [Implementation Status](IMPLEMENTATION_STATUS.md) - Detailed feature status and API reference
-- [Progress Summary](PROGRESS_SUMMARY.md) - Development progress and examples
-- [Specifications](specs/) - Original design specifications
+- [Getting Started](docs/getting-started.md) - Installation and first steps
+- [Module Reference](docs/module.md) - Complete Module API documentation
 
 ---
 
 ## 🛣️ Roadmap
 
-### ✅ Completed (v0.1-beta)
+### ✅ Completed (v0.1)
 - Single-turn execution
 - Multi-turn agentic loops
 - Tool calling with auto-schema generation
 - Parse error recovery
 - Dynamic tool management
 - Step callbacks
+- Streaming responses with partial structured output
+- Forced termination strategies
+- Provider caching
 
-### 🚧 In Progress
-- Streaming responses (Phase 8)
-- Forced termination strategies (Phase 7)
-
-### 📋 Planned
-- Branching workflows (Phase 9)
-- Provider caching (Phase 10)
-- Async support (v0.2)
+### 📋 Planned (v0.2)
+- Branching workflows
+- Async support
 
 ---
 
 ## 🤝 Contributing
 
-Contributions welcome! To continue implementation:
+Contributions welcome! Please:
 
-1. Follow phases 7-10 in order
-2. Write tests first (maintain >80% coverage)
+1. Check open issues for areas to help
+2. Write tests for new features (maintain >80% coverage)
 3. Update documentation
 4. Add examples for new features
-
----
-
-## 🙏 Acknowledgments
-
 
 ---
 
 ## 💬 Questions?
 
 Check out:
-- [Implementation Status](IMPLEMENTATION_STATUS.md) for detailed API docs
+- [Getting Started](docs/getting-started.md) for installation and examples
+- [Module Reference](docs/module.md) for detailed API docs
 - [Examples](examples/) for working code
 - [Tests](tests/) for usage patterns
 
