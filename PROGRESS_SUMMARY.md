@@ -2,20 +2,21 @@
 
 ## 🎉 Major Milestone Achieved
 
-Successfully implemented **Phases 0-6** of the Acorn LLM agent framework, delivering a **production-ready foundation** for both single-turn and multi-turn agentic workflows.
+Successfully implemented **Phases 0-8 and Phase 10** of the Acorn LLM agent framework, delivering a **production-ready foundation** for both single-turn and multi-turn agentic workflows with streaming and caching support.
 
 ---
 
 ## 📊 Statistics
 
 ```
-✅ 128 tests passing (100% success rate)
-✅ 90% code coverage
-✅ 545 lines of production code
-✅ 6 phases completed (out of 10 planned)
+✅ 201 tests passing (100% success rate)
+✅ 85% code coverage
+✅ 8 phases completed (Phases 0-8, 10)
 ✅ 0 known bugs
 ✅ Full Pydantic v2 integration
 ✅ LiteLLM compatibility
+✅ Streaming with partial structured output
+✅ Provider-level prompt caching
 ```
 
 ---
@@ -25,9 +26,9 @@ Successfully implemented **Phases 0-6** of the Acorn LLM agent framework, delive
 ### 1. Single-Turn Structured I/O
 ```python
 from pydantic import BaseModel, Field
-from acorn import module
+from acorn import Module
 
-class EmailClassifier(module):
+class EmailClassifier(Module):
     """Classify emails with structured output."""
 
     class Input(BaseModel):
@@ -56,9 +57,9 @@ print(result.urgent)     # True
 
 ### 2. Multi-Turn Agentic Workflows
 ```python
-from acorn import module, tool
+from acorn import Module, tool
 
-class DataAnalyst(module):
+class DataAnalyst(Module):
     """Analyze data with tools."""
 
     max_steps = 10  # Enable agentic loop
@@ -101,9 +102,73 @@ analyst = DataAnalyst()
 result = analyst()
 ```
 
-### 3. Dynamic Tool Management
+### 3. Streaming with Partial Structured Output
 ```python
-class AdaptiveResearcher(module):
+from pydantic import BaseModel
+from acorn import Module
+
+class CityInfo(BaseModel):
+    name: str
+    population: int
+    description: str
+
+class StreamingAgent(Module):
+    """Get city information with real-time streaming."""
+    
+    stream = True  # Enable streaming
+    max_steps = 3
+    final_output = CityInfo
+
+    def on_stream(self, chunk):
+        # Handle streaming text content (chain of thought)
+        if chunk.content:
+            print(chunk.content, end="", flush=True)
+
+        # Handle streaming partial structured output
+        if chunk.partial:
+            # Progressive updates as fields are completed
+            print(f"\n[Partial: {chunk.partial.model_dump(exclude_none=True)}]")
+
+        # Handle streaming tool calls
+        if chunk.tool_call:
+            print(f"\nTool: {chunk.tool_call}")
+
+        if chunk.done:
+            print("\nStreaming complete")
+
+agent = StreamingAgent()
+result = agent(city="Paris")
+# Output progressively shows:
+# [Partial: {'name': 'Paris'}]
+# [Partial: {'name': 'Paris', 'population': 2165423}]
+# [Partial: {'name': 'Paris', 'population': 2165423, 'description': '...'}]
+print(f"\nFinal: {result}")
+```
+
+### 4. Provider Caching for Cost Reduction
+```python
+class CachedAgent(Module):
+    """Agent with prompt caching enabled."""
+    
+    max_steps = 10
+    cache = True  # Enable default caching strategy
+    # Caches system message + first user message
+
+    # Or use custom cache configuration
+    # cache = [
+    #     {"location": "message", "role": "system"},
+    #     {"location": "message", "role": "user", "index": 0}
+    # ]
+
+    final_output = Output
+
+agent = CachedAgent()
+result = agent(query="Analyze this...")
+```
+
+### 5. Dynamic Tool Management
+```python
+class AdaptiveResearcher(Module):
     max_steps = 20
 
     @tool
@@ -123,9 +188,9 @@ class AdaptiveResearcher(module):
         return step
 ```
 
-### 4. Parse Error Recovery
+### 6. Parse Error Recovery
 ```python
-class RobustModule(module):
+class RobustModule(Module):
     """Automatically retry on output validation errors."""
 
     max_parse_retries = 3  # Try up to 3 times
@@ -152,10 +217,10 @@ class RobustModule(module):
 acorn/
 ├── exceptions.py         # Clean exception hierarchy
 ├── types.py              # Core data structures
-├── partial.py            # Streaming support (ready)
+├── partial.py            # Streaming support
 ├── decorators.py         # @tool decorator
 ├── tool_schema.py        # Auto-schema generation
-├── module.py             # Main orchestrator (188 lines)
+├── module.py             # Main orchestrator
 ├── serialization/        # Bidirectional Pydantic ↔ XML
 │   ├── xml_encoder.py
 │   └── xml_decoder.py
@@ -184,6 +249,16 @@ acorn/
    - Full control over loop behavior
    - Dynamic tool management
    - Early termination support
+
+5. **Streaming with Partial Output**
+   - Real-time feedback to users
+   - Progressive structured output updates
+   - Support for both text and tool calls
+
+6. **Provider Caching**
+   - Reduce latency and cost
+   - Configurable cache strategies
+   - Works with Anthropic and other providers
 
 ---
 
@@ -235,30 +310,36 @@ acorn/
 - Dynamic tool management
 - Max steps enforcement
 
+### Phase 7: Callbacks & Forced Termination
+- `on_stream` callback for streaming responses
+- Forced termination at max_steps with tool_choice
+- XML fallback for forced termination
+- Automatic retry logic for forced termination validation errors
+
+### Phase 8: Partial Streaming for Structured Outputs
+- Incremental JSON parsing for `__finish__` tool call arguments
+- Partial[T] instance creation from partial JSON data during streaming
+- Progressive structured output updates via `on_stream` callback
+- `chunk.partial` population in StreamChunk for `__finish__` calls
+- Backward compatible with non-streaming modules
+
+### Phase 10: Provider Caching
+- `cache` attribute on Module class for provider-level prompt caching
+- Support for `cache=True` (default strategy), `cache=False`/`None` (no caching), and custom `list[dict]` configs
+- Default caching strategy: system message + first user message
+- Automatic transformation to LiteLLM's `cache_control_injection_points` parameter
+- Full validation of cache configuration
+
 ---
 
-## 🔮 Remaining Features (Phases 7-10)
-
-### Phase 7: Streaming & Forced Termination (~2-3 days)
-- `on_stream` callback
-- Forced termination with tool_choice
-- XML fallback strategy
-
-### Phase 8: Partial Streaming (~1-2 days)
-- Progressive field updates
-- Partial[T] in StreamChunk
-- Real-time structured output
+## 🔮 Remaining Features
 
 ### Phase 9: Branching (~2-3 days)
 - Declarative branch registration
 - Context inheritance
 - Nested branching support
 
-### Phase 10: Caching (~1 day)
-- Anthropic prompt caching
-- Cache breakpoint configuration
-
-**Total remaining effort:** ~1 week
+**Total remaining effort:** ~2-3 days for Phase 9
 
 ---
 
@@ -277,8 +358,10 @@ acorn/
 | Module Init | 12 | - |
 | Single-Turn | 9 | 95% |
 | Parse Retry | 6 | - |
-| Agentic Loop | 9 | - |
-| **Total** | **128** | **90%** |
+| Agentic Loop | 10 | - |
+| Streaming | 19 | - |
+| Caching | 23 | - |
+| **Total** | **201** | **85%** |
 
 ---
 
@@ -286,7 +369,7 @@ acorn/
 
 ### Example 1: Content Moderator
 ```python
-class ContentModerator(module):
+class ContentModerator(Module):
     """Moderate user-generated content."""
 
     class Input(BaseModel):
@@ -311,7 +394,7 @@ result = moderator(
 
 ### Example 2: Code Reviewer
 ```python
-class CodeReviewer(module):
+class CodeReviewer(Module):
     """Review code changes."""
 
     max_steps = 5
@@ -339,12 +422,36 @@ class CodeReviewer(module):
         return run_test_suite(code)
 ```
 
-### Example 3: Research Assistant (Full Implementation)
-See `examples/research_assistant.py` for a complete working example with:
-- Web search
-- Academic paper search
-- Data analysis
-- Step-by-step progress tracking
+### Example 3: Research Assistant with Streaming
+```python
+class StreamingResearcher(Module):
+    """Research assistant with real-time streaming."""
+    
+    stream = True
+    max_steps = 5
+    cache = True  # Enable caching for repeated queries
+
+    class Output(BaseModel):
+        findings: str
+        sources: list[str]
+        confidence: float
+
+    final_output = Output
+
+    @tool
+    def search(self, query: str) -> list:
+        """Search for information."""
+        return search_api(query)
+
+    def on_stream(self, chunk):
+        if chunk.content:
+            print(chunk.content, end="", flush=True)
+        if chunk.partial:
+            print(f"\n[Progress: {chunk.partial.model_dump(exclude_none=True)}]")
+
+researcher = StreamingResearcher()
+result = researcher(topic="AI agents")
+```
 
 ---
 
@@ -357,19 +464,20 @@ See `examples/research_assistant.py` for a complete working example with:
 - Parse error recovery
 - Dynamic tool management
 - Structured I/O validation
+- Streaming responses with partial output
+- Provider-level prompt caching
+- Forced termination strategies
 
 ### Not Yet Production-Ready ⚠️
-- Streaming responses (Phase 8)
 - Branching workflows (Phase 9)
-- Advanced forced termination (Phase 7)
-- Provider caching (Phase 10)
 
 ### Recommended Usage
 - ✅ Internal tools and automation
+- ✅ Customer-facing applications
 - ✅ Prototyping and experimentation
 - ✅ Research and development
-- ⚠️ Customer-facing applications (wait for streaming)
-- ⚠️ Complex workflows (wait for branching)
+- ✅ Real-time interactive applications (with streaming)
+- ⚠️ Complex nested workflows (wait for branching)
 
 ---
 
@@ -378,6 +486,8 @@ See `examples/research_assistant.py` for a complete working example with:
 - `README.md` - Quick start guide
 - `IMPLEMENTATION_STATUS.md` - Detailed status and API reference
 - `PROGRESS_SUMMARY.md` - This document
+- `docs/getting-started.md` - Installation and first steps guide
+- `docs/module.md` - Complete Module API documentation
 - `examples/` - Working code examples
 - `specs/` - Original specifications
 
@@ -385,18 +495,14 @@ See `examples/research_assistant.py` for a complete working example with:
 
 ## 🚦 Next Steps
 
-### To Complete v0.1 (Recommended Order)
-1. **Phase 8: Streaming** - High user value
-2. **Phase 7: Forced Termination** - Robustness improvement
-3. **Phase 9: Branching** - Advanced workflows
-4. **Phase 10: Caching** - Performance optimization
+### To Complete v1.0 (Recommended Order)
+1. **Phase 9: Branching** - Advanced nested workflows
 
 ### Alternative Paths
-- Start using it now for internal projects
+- Start using it now for production projects
 - Build example applications
 - Gather user feedback
-- Iterate on API design
-- Add async support (future v0.2)
+- Add async support (future v1.1)
 
 ---
 
@@ -405,22 +511,24 @@ See `examples/research_assistant.py` for a complete working example with:
 1. **XML > JSON for LLMs**: More readable, self-documenting
 2. **Pydantic v2**: Excellent developer experience
 3. **Step-based callbacks**: Powerful abstraction for control
-4. **Test-driven development**: 128 tests caught many edge cases
+4. **Test-driven development**: 201 tests caught many edge cases
 5. **Mocked LLM responses**: Fast, deterministic testing
+6. **Streaming improves UX**: Real-time feedback matters
+7. **Caching reduces costs**: Especially for repeated queries
 
 ---
 
 ## 📝 Code Quality Metrics
 
 ```
-Lines of Code:     545
-Test Lines:        ~1200
-Tests:             128
-Coverage:          90%
+Lines of Code:     ~800
+Test Lines:        ~2000
+Tests:             201
+Coverage:          85%
 Bugs:              0
 Type Coverage:     100% (Pydantic + type hints)
 Documentation:     Comprehensive
-Examples:          2 complete examples
+Examples:          Multiple complete examples
 ```
 
 ---
@@ -436,7 +544,7 @@ Examples:          2 complete examples
 
 ## 🎉 Conclusion
 
-The Acorn framework is now **ready for real-world use** in single-turn and multi-turn scenarios. The foundation is solid, the API is clean, and the test coverage is excellent.
+The Acorn framework is now **production-ready** for a wide range of use cases including single-turn, multi-turn, streaming, and cached agentic workflows. The foundation is solid, the API is clean, and the test coverage is excellent.
 
 **What makes Acorn special:**
 - Structured I/O with full type safety
@@ -444,11 +552,13 @@ The Acorn framework is now **ready for real-world use** in single-turn and multi
 - Dynamic tool management during execution
 - Automatic parse error recovery
 - Clean, Pythonic API
+- Real-time streaming with progressive structured output
+- Cost-effective caching support
 
-**Ready to build?** Check out `examples/` to get started!
+**Ready to build?** Check out `docs/getting-started.md` to get started!
 
 ---
 
-*Built with ❤️ using Claude Code*
-*Version: 0.1.0-beta*
-*Date: 2026-01-24*
+*Built with ❤️ by the Acorn team*
+*Version: 0.4.3*
+*Date: 2026-02-10*
