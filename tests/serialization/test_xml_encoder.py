@@ -236,3 +236,74 @@ def test_empty_list():
     # Empty lists should still have the container tag (may have space before /)
     assert "<tags>" in xml or "<tags />" in xml or "<tags/>" in xml
     assert "<numbers>" in xml or "<numbers />" in xml or "<numbers/>" in xml
+
+
+# --- XML content preservation tests ---
+
+
+class XmlContentModel(BaseModel):
+    """Model with a field that may contain XML."""
+    content: str
+
+
+class MixedModel(BaseModel):
+    """Model with multiple fields."""
+    label: str
+    body: str
+
+
+def test_xml_string_content_preserved():
+    """Test that XML content in string fields is preserved, not escaped."""
+    model = XmlContentModel(content='<issue number="2"><title>Bug</title></issue>')
+    xml = pydantic_to_xml(model, include_descriptions=False)
+
+    assert '<issue number="2">' in xml
+    assert "<title>Bug</title>" in xml
+    assert "&lt;" not in xml
+
+
+def test_plain_string_still_works():
+    """Test that plain strings without XML are unchanged."""
+    model = XmlContentModel(content="Hello, world!")
+    xml = pydantic_to_xml(model, include_descriptions=False)
+
+    assert "<content>Hello, world!</content>" in xml
+
+
+def test_malformed_xml_falls_back_to_escaped():
+    """Test that malformed XML in strings falls back to escaping."""
+    model = XmlContentModel(content="5 < 10 and 10 > 5")
+    xml = pydantic_to_xml(model, include_descriptions=False)
+
+    # Should be escaped since it's not valid XML
+    assert "&lt;" in xml or "&gt;" in xml
+
+
+def test_mixed_text_and_xml_preserved():
+    """Test string with text before/after XML elements."""
+    model = XmlContentModel(content="Here is <bold>important</bold> info")
+    xml = pydantic_to_xml(model, include_descriptions=False)
+
+    assert "Here is " in xml
+    assert "<bold>important</bold>" in xml
+    assert " info" in xml
+
+
+def test_multiple_xml_fragments():
+    """Test string with multiple XML elements."""
+    model = XmlContentModel(content="<a>1</a><b>2</b><c>3</c>")
+    xml = pydantic_to_xml(model, include_descriptions=False)
+
+    assert "<a>1</a>" in xml
+    assert "<b>2</b>" in xml
+    assert "<c>3</c>" in xml
+    assert "&lt;" not in xml
+
+
+def test_xml_content_with_other_fields():
+    """Test that XML preservation works alongside normal fields."""
+    model = MixedModel(label="test", body="<tag>value</tag>")
+    xml = pydantic_to_xml(model, include_descriptions=False)
+
+    assert "<label>test</label>" in xml
+    assert "<tag>value</tag>" in xml

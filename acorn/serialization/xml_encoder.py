@@ -126,9 +126,22 @@ def _value_to_element(
         # Boolean as lowercase string
         element.text = str(value).lower()
 
-    elif isinstance(value, (int, float, str)):
-        # Primitives
+    elif isinstance(value, (int, float)):
+        # Numeric primitives
         element.text = str(value)
+
+    elif isinstance(value, str):
+        # String - preserve XML content if present
+        if '<' in value:
+            try:
+                parsed = ET.fromstring(f"<_wrapper>{value}</_wrapper>")
+                element.text = parsed.text
+                for child in parsed:
+                    element.append(child)
+                return
+            except ET.ParseError:
+                pass
+        element.text = value
 
     else:
         # Fallback to string representation
