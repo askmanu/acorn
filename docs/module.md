@@ -90,9 +90,39 @@ For advanced configuration, use a dict:
 model = {
     "id": "anthropic/claude-sonnet-4-5-20250514",
     "vertex_location": "us-central1",
-    "reasoning": True # Can be: True, 'low', 'medium' or 'high'
+    "vertex_credentials": "/path/to/credentials.json",
+    "reasoning": True,  # Can be: True, 'low', 'medium' or 'high'
+    "api_key": "your-api-key",
+    "api_base": "https://custom.endpoint.com/v1"
 }
 ```
+
+**Dict keys:**
+
+- `id` (required): Model identifier
+- `vertex_location` (optional): Vertex AI location for Google Cloud models
+- `vertex_credentials` (optional): Path to Vertex AI credentials file
+- `reasoning` (optional): Enable extended thinking (`True` or `"low"`/`"medium"`/`"high"`)
+- `api_key` (optional): Override default API key for this module
+- `api_base` (optional): Override default API endpoint for this module
+
+Use `api_key` and `api_base` when you need per-module API configuration:
+
+```python
+# Module using a custom OpenAI-compatible endpoint
+class CustomModule(Module):
+    model = {
+        "id": "custom/model-name",
+        "api_key": "sk-custom-key",
+        "api_base": "https://my-llm-proxy.example.com/v1"
+    }
+```
+
+This is useful for:
+- Multi-tenant scenarios with different API keys per module
+- Custom LLM deployments with non-standard endpoints
+- Testing with different providers without changing environment variables
+- Using different authentication for different modules
 
 ### temperature
 
