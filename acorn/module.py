@@ -123,7 +123,7 @@ class Module:
                 raise ValueError("Model dict must contain 'id' key")
 
             # Validate allowed keys
-            allowed_keys = {"id", "vertex_location", "vertex_credentials", "reasoning"}
+            allowed_keys = {"id", "vertex_location", "vertex_credentials", "reasoning", "api_key", "api_base"}
             invalid_keys = set(self.model.keys()) - allowed_keys
             if invalid_keys:
                 raise ValueError(f"Invalid model config keys: {invalid_keys}. Allowed: {allowed_keys}")

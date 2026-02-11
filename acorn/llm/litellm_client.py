@@ -75,6 +75,12 @@ def call_llm(
         if "vertex_credentials" in model:
             kwargs["vertex_credentials"] = model["vertex_credentials"]
 
+        # Add optional API parameters
+        if "api_key" in model:
+            kwargs["api_key"] = model["api_key"]
+        if "api_base" in model:
+            kwargs["api_base"] = model["api_base"]
+
         # Handle reasoning parameter
         if "reasoning" in model:
             reasoning = model["reasoning"]
