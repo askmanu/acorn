@@ -253,6 +253,11 @@ Check out:
 
 ---
 
+## Acknowledgments
+Thanks to @rosenbrockc for donating the `acorn` pip package name.
+
+---
+
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) for details
