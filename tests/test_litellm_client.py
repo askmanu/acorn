@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from pydantic import BaseModel
 
-from acorn.llm.litellm_client import call_llm, _handle_streaming_response, _parse_partial_json, _extract_embedded_tool_calls, _response_to_dict
+from acorn.llm.litellm_client import call_llm, _handle_streaming_response, _parse_partial_json, _extract_embedded_tool_calls, _response_to_dict, _translate_model_to_litellm
 from acorn.types import StreamChunk
 
 
@@ -563,3 +563,134 @@ __finish__
     # Should be the native call, not the embedded one
     assert result["tool_calls"][0]["id"] == "call_123"
     assert result["tool_calls"][0]["function"]["name"] == "search"
+
+
+# Tests for _translate_model_to_litellm
+
+def test_translate_model_string_becomes_dict():
+    """Test that string models are converted to dicts with nulled provider keys."""
+    result = _translate_model_to_litellm("gpt-4")
+    assert result["model"] == "gpt-4"
+    assert result["api_base"] is None
+    assert result["api_key"] is None
+    assert result["vertex_location"] is None
+    assert result["vertex_credentials"] is None
+    assert result["reasoning_effort"] is None
+
+
+def test_translate_model_dict_basic():
+    """Test dict model translates id to model and nulls provider keys."""
+    result = _translate_model_to_litellm({"id": "gpt-4"})
+    assert result["model"] == "gpt-4"
+    # Provider keys explicitly set to None to prevent leaking from primary model
+    assert result["api_base"] is None
+    assert result["api_key"] is None
+    assert result["vertex_location"] is None
+    assert result["vertex_credentials"] is None
+    assert result["reasoning_effort"] is None
+
+
+def test_translate_model_dict_with_all_keys():
+    """Test dict model translates all supported keys."""
+    result = _translate_model_to_litellm({
+        "id": "vertex_ai/gemini-pro",
+        "vertex_location": "us-central1",
+        "vertex_credentials": "creds.json",
+        "api_key": "sk-test",
+        "api_base": "https://api.example.com",
+    })
+    assert result["model"] == "vertex_ai/gemini-pro"
+    assert result["vertex_location"] == "us-central1"
+    assert result["vertex_credentials"] == "creds.json"
+    assert result["api_key"] == "sk-test"
+    assert result["api_base"] == "https://api.example.com"
+    assert result["reasoning_effort"] is None
+
+
+def test_translate_model_dict_reasoning_true():
+    """Test reasoning=True maps to reasoning_effort=medium."""
+    result = _translate_model_to_litellm({"id": "gpt-4", "reasoning": True})
+    assert result["model"] == "gpt-4"
+    assert result["reasoning_effort"] == "medium"
+
+
+def test_translate_model_dict_reasoning_string():
+    """Test reasoning string maps to reasoning_effort."""
+    result = _translate_model_to_litellm({"id": "gpt-4", "reasoning": "high"})
+    assert result["model"] == "gpt-4"
+    assert result["reasoning_effort"] == "high"
+
+
+# Tests for model_fallbacks in call_llm
+
+def test_call_llm_with_model_fallbacks():
+    """Test that model_fallbacks are translated and passed as fallbacks kwarg."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            model_fallbacks=[
+                "anthropic/claude-3-5-sonnet-20241022",
+                {"id": "vertex_ai/gemini-pro", "vertex_location": "us-central1"},
+            ],
+        )
+
+        call_args = mock_completion.call_args
+        assert "fallbacks" in call_args.kwargs
+        fallbacks = call_args.kwargs["fallbacks"]
+        # String fallback is converted to dict with nulled provider keys
+        assert fallbacks[0]["model"] == "anthropic/claude-3-5-sonnet-20241022"
+        assert fallbacks[0]["api_base"] is None
+        assert fallbacks[0]["reasoning_effort"] is None
+        # Dict fallback preserves its own keys, nulls the rest
+        assert fallbacks[1]["model"] == "vertex_ai/gemini-pro"
+        assert fallbacks[1]["vertex_location"] == "us-central1"
+        assert fallbacks[1]["api_base"] is None
+        assert fallbacks[1]["api_key"] is None
+        assert fallbacks[1]["reasoning_effort"] is None
+
+
+def test_call_llm_without_model_fallbacks():
+    """Test that no fallbacks kwarg is added when model_fallbacks is None."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+        )
+
+        call_args = mock_completion.call_args
+        assert "fallbacks" not in call_args.kwargs
+
+
+def test_call_llm_with_empty_model_fallbacks():
+    """Test that empty list model_fallbacks doesn't add fallbacks kwarg."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            model_fallbacks=[],
+        )
+
+        call_args = mock_completion.call_args
+        assert "fallbacks" not in call_args.kwargs

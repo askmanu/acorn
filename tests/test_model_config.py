@@ -186,3 +186,131 @@ def test_model_dict_no_reasoning_skips_check(mock_supports):
 
     TestModule()
     mock_supports.assert_not_called()
+
+
+# Tests for model_fallbacks validation
+
+def test_model_fallbacks_empty():
+    """Test empty model_fallbacks (default)."""
+    class Output(BaseModel):
+        result: str
+
+    class TestModule(Module):
+        final_output = Output
+
+    mod = TestModule()
+    assert mod.model_fallbacks == []
+
+
+def test_model_fallbacks_string_entries():
+    """Test model_fallbacks with string entries."""
+    class Output(BaseModel):
+        result: str
+
+    class TestModule(Module):
+        model_fallbacks = ["gpt-4", "anthropic/claude-3-5-sonnet-20241022"]
+        final_output = Output
+
+    mod = TestModule()
+    assert len(mod.model_fallbacks) == 2
+
+
+def test_model_fallbacks_dict_entries():
+    """Test model_fallbacks with dict entries."""
+    class Output(BaseModel):
+        result: str
+
+    class TestModule(Module):
+        model_fallbacks = [
+            {"id": "gpt-4", "api_key": "sk-test"},
+            {"id": "vertex_ai/gemini-pro", "vertex_location": "us-central1"},
+        ]
+        final_output = Output
+
+    mod = TestModule()
+    assert len(mod.model_fallbacks) == 2
+
+
+def test_model_fallbacks_mixed_entries():
+    """Test model_fallbacks with mixed string and dict entries."""
+    class Output(BaseModel):
+        result: str
+
+    class TestModule(Module):
+        model_fallbacks = [
+            "gpt-4",
+            {"id": "vertex_ai/gemini-pro", "vertex_location": "us-central1"},
+        ]
+        final_output = Output
+
+    mod = TestModule()
+    assert len(mod.model_fallbacks) == 2
+
+
+def test_model_fallbacks_dict_missing_id():
+    """Test that fallback dict without id raises error."""
+    class Output(BaseModel):
+        result: str
+
+    class TestModule(Module):
+        model_fallbacks = [{"api_key": "sk-test"}]
+        final_output = Output
+
+    with pytest.raises(ValueError, match="model_fallbacks\\[0\\] dict must contain 'id' key"):
+        TestModule()
+
+
+def test_model_fallbacks_dict_invalid_keys():
+    """Test that fallback dict with invalid keys raises error."""
+    class Output(BaseModel):
+        result: str
+
+    class TestModule(Module):
+        model_fallbacks = [{"id": "gpt-4", "invalid_key": "value"}]
+        final_output = Output
+
+    with pytest.raises(ValueError, match="Invalid model_fallbacks\\[0\\] config keys"):
+        TestModule()
+
+
+def test_model_fallbacks_invalid_type():
+    """Test that non-string non-dict fallback raises error."""
+    class Output(BaseModel):
+        result: str
+
+    class TestModule(Module):
+        model_fallbacks = [42]
+        final_output = Output
+
+    with pytest.raises(ValueError, match="model_fallbacks\\[0\\] must be a string or dict"):
+        TestModule()
+
+
+def test_model_fallbacks_invalid_reasoning():
+    """Test that invalid reasoning in fallback raises error."""
+    class Output(BaseModel):
+        result: str
+
+    class TestModule(Module):
+        model_fallbacks = [{"id": "gpt-4", "reasoning": "invalid"}]
+        final_output = Output
+
+    with pytest.raises(ValueError, match="model_fallbacks\\[0\\] reasoning must be True"):
+        TestModule()
+
+
+def test_model_fallbacks_valid_reasoning():
+    """Test fallback with valid reasoning values."""
+    class Output(BaseModel):
+        result: str
+
+    class TestModule(Module):
+        model_fallbacks = [
+            {"id": "gpt-4", "reasoning": True},
+            {"id": "gpt-4", "reasoning": "high"},
+        ]
+        final_output = Output
+
+    mod = TestModule()
+    assert mod.model_fallbacks[0]["reasoning"] is True
+    assert mod.model_fallbacks[1]["reasoning"] == "high"

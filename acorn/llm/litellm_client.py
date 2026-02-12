@@ -9,6 +9,29 @@ from pydantic import BaseModel
 from acorn.types import StreamChunk
 
 
+def _translate_model_to_litellm(model: str | dict) -> str | dict:
+    """Convert acorn model format to litellm fallback format.
+
+    Args:
+        model: Acorn model string or config dict
+
+    Returns:
+        String (passthrough) or dict with litellm-compatible keys
+    """
+    if isinstance(model, str):
+        model = {"id": model}
+    result = {"model": model["id"]}
+    # Explicitly set all provider-specific keys, defaulting to None for keys
+    # not present. This prevents the primary model's kwargs (e.g. api_base)
+    # from leaking into fallback calls via litellm's kwarg merging.
+    for key in ("vertex_location", "vertex_credentials", "api_key", "api_base", "reasoning_effort"):
+        result[key] = model.get(key, None)
+    if "reasoning" in model:
+        reasoning = model["reasoning"]
+        result["reasoning_effort"] = "medium" if reasoning is True else reasoning
+    return result
+
+
 def call_llm(
     messages: list[dict],
     model: str | dict,
@@ -21,6 +44,7 @@ def call_llm(
     final_output_schema: type[BaseModel] | None = None,
     metadata: dict | None = None,
     cache: bool | list[dict] | None = None,
+    model_fallbacks: list[str | dict] | None = None,
 ) -> dict:
     """Wrapper around litellm.completion for consistent LLM calls.
 
@@ -116,6 +140,10 @@ def call_llm(
         elif cache is not False:
             # Use custom cache configuration
             kwargs["cache_control_injection_points"] = cache
+
+    # Add model fallbacks if provided
+    if model_fallbacks:
+        kwargs["fallbacks"] = [_translate_model_to_litellm(fb) for fb in model_fallbacks]
 
     # Call LiteLLM
     try:

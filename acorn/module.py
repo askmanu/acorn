@@ -74,6 +74,9 @@ class Module:
     # Metadata for LiteLLM tracking
     metadata: dict | None = None
 
+    # Model fallbacks for automatic failover
+    model_fallbacks: list = []
+
     # Provider caching configuration
     cache: bool | list[dict] | None = None
 
@@ -91,6 +94,9 @@ class Module:
         """Initialize the module."""
         # Validate model configuration
         self._validate_model_config()
+
+        # Validate model fallbacks
+        self._validate_model_fallbacks()
 
         # Validate cache configuration
         self._validate_cache_config()
@@ -139,6 +145,45 @@ class Module:
                     raise ValueError(
                         f"Model '{self.model['id']}' does not support reasoning. "
                         f"Remove the 'reasoning' parameter or use a model that supports reasoning."
+                    )
+
+    def _validate_model_fallbacks(self):
+        """Validate model_fallbacks configuration.
+
+        Each entry follows the same rules as `model`: string or dict with
+        {id, vertex_location, vertex_credentials, reasoning, api_key, api_base}.
+
+        Raises:
+            ValueError: If any fallback entry is invalid
+        """
+        if not self.model_fallbacks:
+            return
+
+        allowed_keys = {"id", "vertex_location", "vertex_credentials", "reasoning", "api_key", "api_base"}
+
+        for i, fallback in enumerate(self.model_fallbacks):
+            if isinstance(fallback, str):
+                continue
+
+            if not isinstance(fallback, dict):
+                raise ValueError(
+                    f"model_fallbacks[{i}] must be a string or dict, got: {type(fallback).__name__}"
+                )
+
+            if "id" not in fallback:
+                raise ValueError(f"model_fallbacks[{i}] dict must contain 'id' key")
+
+            invalid_keys = set(fallback.keys()) - allowed_keys
+            if invalid_keys:
+                raise ValueError(
+                    f"Invalid model_fallbacks[{i}] config keys: {invalid_keys}. Allowed: {allowed_keys}"
+                )
+
+            if "reasoning" in fallback:
+                reasoning = fallback["reasoning"]
+                if reasoning is not True and reasoning not in ["low", "medium", "high"]:
+                    raise ValueError(
+                        f"model_fallbacks[{i}] reasoning must be True or one of 'low', 'medium', 'high', got: {reasoning}"
                     )
 
     def _validate_cache_config(self):
@@ -275,6 +320,7 @@ class Module:
             final_output_schema=self.final_output,
             metadata=self.metadata,
             cache=self.cache,
+            model_fallbacks=self.model_fallbacks or None,
         )
 
         # Add assistant response to history
@@ -315,6 +361,7 @@ class Module:
                 final_output_schema=self.final_output,
                 metadata=self.metadata,
                 cache=self.cache,
+                model_fallbacks=self.model_fallbacks or None,
             )
             assistant_message = {
                 "role": "assistant",
@@ -401,6 +448,7 @@ class Module:
                 final_output_schema=self.final_output,
                 metadata=self.metadata,
                 cache=self.cache,
+                model_fallbacks=self.model_fallbacks or None,
             )
 
             # Add assistant message to history
@@ -651,6 +699,7 @@ class Module:
                 max_tokens=self.max_tokens,
                 metadata=self.metadata,
                 cache=self.cache,
+                model_fallbacks=self.model_fallbacks or None,
             )
 
             if not response.get("tool_calls"):
@@ -827,6 +876,7 @@ class Module:
                 tool_choice={"type": "function", "function": {"name": "__finish__"}},
                 metadata=self.metadata,
                 cache=self.cache,
+                model_fallbacks=self.model_fallbacks or None,
             )
 
             # Process the response
@@ -904,6 +954,7 @@ class Module:
             tool_choice={"type": "function", "function": {"name": "__finish__"}},
             metadata=self.metadata,
             cache=self.cache,
+            model_fallbacks=self.model_fallbacks or None,
         )
 
         if not response.get("tool_calls"):
@@ -983,6 +1034,7 @@ class Module:
             max_tokens=self.max_tokens,
             metadata=self.metadata,
             cache=self.cache,
+            model_fallbacks=self.model_fallbacks or None,
         )
 
         # Parse XML from response content
@@ -1057,6 +1109,7 @@ class Module:
             max_tokens=self.max_tokens,
             metadata=self.metadata,
             cache=self.cache,
+            model_fallbacks=self.model_fallbacks or None,
         )
 
         content = response.get("content", "")
