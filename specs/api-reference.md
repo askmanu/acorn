@@ -10,7 +10,7 @@ Complete API surface for acorn v0.1.
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `model` | `str \| dict` | required | LiteLLM model identifier or config dict |
+| `model` | `str \| dict` | required | LiteLLM model identifier or config dict. When dict, allowed keys: `id` (required), `vertex_location`, `vertex_credentials`, `reasoning`, `api_key`, `api_base` |
 | `temperature` | `float` | `0.7` | Sampling temperature (0-2) |
 | `max_tokens` | `int` | `4096` | Maximum tokens in response |
 | `max_steps` | `int \| None` | `None` | Maximum agentic loop iterations. `None` = single-turn (input → output or tool call). Set to `N` for up to N loop iterations. |
@@ -22,6 +22,29 @@ Complete API surface for acorn v0.1.
 | `branches` | `dict` | `{}` | Branch module registry |
 | `metadata` | `dict \| None` | `None` | LiteLLM metadata for tracking |
 | `cache` | `bool \| list[dict] \| None` | `None` | Provider caching config. `True` = default strategy (system + first message), `False`/`None` = no caching, `list[dict]` = custom injection points |
+
+#### Model Configuration Dict
+
+When `model` is a dict, the following keys are allowed:
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `id` | `str` | Yes | Model identifier (e.g., `"anthropic/claude-sonnet-4-5-20250514"`) |
+| `vertex_location` | `str` | No | Vertex AI location for Google Cloud models (e.g., `"us-central1"`) |
+| `vertex_credentials` | `str` | No | Path to Vertex AI credentials file |
+| `reasoning` | `bool \| str` | No | Enable extended thinking. `True` or one of `"low"`, `"medium"`, `"high"` |
+| `api_key` | `str` | No | Override default API key for this module |
+| `api_base` | `str` | No | Override default API endpoint for this module (e.g., `"https://custom.endpoint.com/v1"`) |
+
+**Example:**
+
+```python
+model = {
+    "id": "anthropic/claude-sonnet-4-5-20250514",
+    "api_key": "sk-custom-key",
+    "api_base": "https://my-proxy.example.com/v1"
+}
+```
 
 ### XML Serialization Attributes
 
