@@ -1,6 +1,6 @@
 # acorn 🌰
 
-**LLM agent framework with structured I/O, heavily influenced by DSPy.**
+**LLM agent framework with structured I/O**
 
 Build AI agents with type-safe inputs and outputs, automatic tool calling, and powerful agentic loops.
 
@@ -253,13 +253,13 @@ Check out:
 
 ---
 
-## Acknowledgments
+## 🙏 Acknowledgments
 Thanks to @rosenbrockc for donating the `acorn` pip package name.
 
 ---
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) for details
+[MIT License](LICENSE)
 
 ---
