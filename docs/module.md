@@ -171,6 +171,64 @@ cache = [
 ]
 ```
 
+### model_fallbacks
+
+Specify fallback models for automatic provider failover. If the primary model fails, acorn automatically retries with fallback models in order.
+
+```python
+class MyModule(Module):
+    model = "anthropic/claude-sonnet-4-5-20250514"
+    model_fallbacks = [
+        "openai/gpt-4o",
+        "vertex_ai/gemini-pro"
+    ]
+```
+
+Each fallback can be a string (model name) or a dict with the same keys as `model`:
+
+```python
+model_fallbacks = [
+    "openai/gpt-4o",  # Simple string
+    {
+        "id": "vertex_ai/gemini-pro",
+        "vertex_location": "us-central1",
+        "vertex_credentials": "/path/to/creds.json"
+    }
+]
+```
+
+**Dict keys (same as model):**
+
+- `id` (required): Model identifier
+- `vertex_location` (optional): Vertex AI location
+- `vertex_credentials` (optional): Path to Vertex AI credentials
+- `reasoning` (optional): Enable extended thinking (`True` or `"low"`/`"medium"`/`"high"`)
+- `api_key` (optional): Override API key for this fallback
+- `api_base` (optional): Override API endpoint for this fallback
+
+Mix strings and dicts freely:
+
+```python
+model_fallbacks = [
+    "openai/gpt-4o",
+    {"id": "vertex_ai/gemini-pro", "vertex_location": "us-central1"},
+    "anthropic/claude-3-5-sonnet-20241022"
+]
+```
+
+**Use cases:**
+
+- **High availability**: Ensure your application continues working if one provider has an outage
+- **Cost optimization**: Use cheaper fallback models when primary model is unavailable
+- **Rate limiting**: Automatically switch providers when you hit rate limits
+- **Multi-region deployments**: Configure region-specific fallbacks for lower latency
+
+**How it works:**
+
+Acorn integrates with LiteLLM's automatic fallback mechanism. When the primary model fails (rate limit, timeout, service outage), LiteLLM automatically tries each fallback in order until one succeeds. The fallback is transparent - your code receives the same response structure regardless of which model was used.
+
+Check `step.response` or LiteLLM metadata to identify which model actually handled the request.
+
 ## Schemas
 
 Define what goes in and what comes out using Pydantic models.
