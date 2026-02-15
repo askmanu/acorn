@@ -1,5 +1,6 @@
 """Core module class for Acorn."""
 
+import copy
 import json
 import inspect
 from pathlib import Path
@@ -7,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel
 import litellm
 
-from acorn.exceptions import AcornError, ParseError, ToolConflictError
+from acorn.exceptions import AcornError, BranchError, ParseError, ToolConflictError
 from acorn.serialization import pydantic_to_xml
 from acorn.tool_schema import generate_tool_schema
 from acorn.llm import call_llm
@@ -71,6 +72,9 @@ class Module:
     # Tools
     tools: list = []
 
+    # Branches (sub-agent modules)
+    branches: list = []
+
     # Metadata for LiteLLM tracking
     metadata: dict | None = None
 
@@ -101,6 +105,9 @@ class Module:
         # Validate cache configuration
         self._validate_cache_config()
 
+        # Validate branches configuration (basic type checks)
+        self._validate_branches()
+
         # Validate final_output requirement for single-turn
         if self.max_steps is None and self.final_output is None:
             raise ValueError(
@@ -108,7 +115,7 @@ class Module:
                 "Set max_steps to enable multi-turn mode without final_output."
             )
 
-        # Collect all tools
+        # Collect all tools (includes branch tool if branches configured)
         self._collected_tools = self._collect_all_tools()
 
         # Check for tool name conflicts
@@ -116,6 +123,10 @@ class Module:
 
         # History for multi-turn (will be used in Phase 6)
         self.history = []
+
+        # Internal attributes for branching (set during branch execution)
+        self._parent_tools = []  # Parent's tools (for call_parent_tool())
+        self._inherited_history = None  # Deep-copied parent history
 
     def _validate_model_config(self):
         """Validate model configuration.
@@ -246,6 +257,34 @@ class Module:
                     f"cache[{i}]['index'] must be an int, got: {type(item['index']).__name__}"
                 )
 
+    def _validate_branches(self):
+        """Validate branches configuration (type checks only).
+
+        Raises:
+            ValueError: If branches config is invalid
+        """
+        if not self.branches:
+            return
+
+        if not isinstance(self.branches, list):
+            raise ValueError(
+                f"branches must be a list, got: {type(self.branches).__name__}"
+            )
+
+        # Check each item is a Module subclass
+        seen_names = set()
+        for i, branch_class in enumerate(self.branches):
+            if not (isinstance(branch_class, type) and issubclass(branch_class, Module)):
+                raise ValueError(
+                    f"branches[{i}] must be a Module subclass, got: {branch_class}"
+                )
+
+            # Check for duplicate class names
+            name = branch_class.__name__
+            if name in seen_names:
+                raise ValueError(f"Duplicate branch class name: {name}")
+            seen_names.add(name)
+
     def __call__(self, **kwargs) -> BaseModel | None:
         """Execute the module with provided inputs.
 
@@ -294,13 +333,24 @@ class Module:
             # No initial_input schema
             user_message = {"role": "user", "content": str(kwargs)}
 
-        messages = [system_message, user_message]
+        messages = [system_message]
+
+        # Prepend inherited history if this is a branch
+        if self._inherited_history:
+            messages.extend(self._inherited_history)
+
+        messages.append(user_message)
 
         # Initialize history
         self.history = messages.copy()
 
         # 4. Collect tools and add __finish__
         tools_list = self._collected_tools.copy()
+
+        # Add call_parent_tool if this is a branch with parent tools
+        if self._parent_tools:
+            tools_list.append(self._generate_parent_tool(self._parent_tools))
+
         finish_tool = self._generate_finish_tool()
         tools_list.append(finish_tool)
 
@@ -418,10 +468,21 @@ class Module:
             user_message = {"role": "user", "content": str(kwargs)}
 
         # Initialize history
-        self.history = [system_message, user_message]
+        self.history = [system_message]
+
+        # Prepend inherited history if this is a branch
+        if self._inherited_history:
+            self.history.extend(self._inherited_history)
+
+        self.history.append(user_message)
 
         # 4. Collect tools and add __finish__
         current_tools = self._collected_tools.copy()
+
+        # Add call_parent_tool if this is a branch with parent tools
+        if self._parent_tools:
+            current_tools.append(self._generate_parent_tool(self._parent_tools))
+
         finish_tool = self._generate_finish_tool()
         current_tools.append(finish_tool)
 
@@ -747,6 +808,10 @@ class Module:
             if callable(attr) and hasattr(attr, "_tool_schema"):
                 collected.append(attr)
 
+        # Add branch tool if branches are configured
+        if self.branches:
+            collected.append(self._generate_branch_tool())
+
         return collected
 
     def _check_tool_conflicts(self):
@@ -762,6 +827,301 @@ class Module:
             if name in names:
                 raise ToolConflictError(f"Duplicate tool name: {name}")
             names.add(name)
+
+    def _generate_branch_tool(self):
+        """Generate the branch() tool for spawning sub-agent branches.
+
+        Returns:
+            A callable with _tool_schema for branch invocation.
+        """
+        module_ref = self
+
+        def branch(**kwargs):
+            """Spawn a sub-agent branch. Call with no args to list available branches and their input schemas. Call with name and the branch's required input args to start it."""
+            name = kwargs.pop("name", None)
+            merge = kwargs.pop("merge", "end_result")
+
+            if name is None:
+                # List mode: return available branches
+                branch_list = []
+                for bclass in module_ref.branches:
+                    info = {"name": bclass.__name__}
+                    info["description"] = bclass.__doc__ or ""
+                    if bclass.initial_input:
+                        schema = bclass.initial_input.model_json_schema()
+                        info["input_schema"] = schema
+                    else:
+                        info["input_schema"] = {}
+                    branch_list.append(info)
+                return json.dumps(branch_list, indent=2)
+
+            # Execution mode - find branch class by name
+            branch_class = None
+            for bclass in module_ref.branches:
+                if bclass.__name__ == name:
+                    branch_class = bclass
+                    break
+
+            if branch_class is None:
+                available = [b.__name__ for b in module_ref.branches]
+                raise BranchError(f"Branch '{name}' not found. Available: {available}")
+
+            if merge not in ("end_result", "summarize", "merge"):
+                raise BranchError(f"Invalid merge strategy '{merge}'. Must be: end_result, summarize, merge")
+
+            result, merged_content = module_ref._execute_branch(branch_class, merge, **kwargs)
+            return merged_content
+
+        branch.__name__ = "branch"
+
+        branch._tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "branch",
+                "description": (
+                    "Spawn a sub-agent branch. Call with no args to list available branches "
+                    "and their input schemas. Call with name and the branch's required input args to start it."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Name of the branch to spawn"},
+                        "merge": {
+                            "type": "string",
+                            "enum": ["merge", "summarize", "end_result"],
+                            "description": "How to merge branch results. Default: end_result"
+                        }
+                    },
+                    "additionalProperties": True
+                }
+            }
+        }
+
+        return branch
+
+    def _generate_parent_tool(self, parent_tools):
+        """Generate the call_parent_tool() tool for accessing parent module's tools.
+
+        Args:
+            parent_tools: List of parent's collected tools
+
+        Returns:
+            A callable with _tool_schema for parent tool invocation.
+        """
+        # Filter out __finish__ and branch from parent tools
+        filtered_tools = [
+            t for t in parent_tools
+            if t.__name__ not in ("__finish__", "branch")
+        ]
+
+        def call_parent_tool(**kwargs):
+            """Call a tool from the parent module. Call with no args to list available parent tools. Call with name and the tool's args to execute it."""
+            name = kwargs.pop("name", None)
+
+            if name is None:
+                # List mode
+                tool_list = []
+                for t in filtered_tools:
+                    schema = generate_tool_schema(t) if not hasattr(t, "_tool_schema") else t._tool_schema
+                    tool_list.append({
+                        "name": t.__name__,
+                        "schema": schema.get("function", schema)
+                    })
+                return json.dumps(tool_list, indent=2)
+
+            # Execution mode
+            tool_func = None
+            for t in filtered_tools:
+                if t.__name__ == name:
+                    tool_func = t
+                    break
+
+            if tool_func is None:
+                available = [t.__name__ for t in filtered_tools]
+                raise BranchError(f"Parent tool '{name}' not found. Available: {available}")
+
+            return tool_func(**kwargs)
+
+        call_parent_tool.__name__ = "call_parent_tool"
+
+        call_parent_tool._tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "call_parent_tool",
+                "description": (
+                    "Call a tool from the parent module. Call with no args to list available parent tools. "
+                    "Call with name and the tool's args to execute it."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Name of the parent tool to call"}
+                    },
+                    "additionalProperties": True
+                }
+            }
+        }
+
+        return call_parent_tool
+
+    def _execute_branch(self, branch_class, merge="end_result", **kwargs):
+        """Execute a branch module and return result with merged content.
+
+        Args:
+            branch_class: The Module subclass to execute as a branch
+            merge: Merge strategy ('end_result', 'summarize', 'merge')
+            **kwargs: Arguments passed to the branch module's initial_input
+
+        Returns:
+            Tuple of (result BaseModel instance or None, merged_content string)
+
+        Raises:
+            BranchError: If branch execution fails
+        """
+        # Deep-copy parent history
+        branch_history = copy.deepcopy(self.history)
+
+        # Instantiate branch
+        try:
+            branch_instance = branch_class()
+        except Exception as e:
+            raise BranchError(f"Failed to instantiate branch: {e}")
+
+        # Set parent tools for call_parent_tool() access
+        branch_instance._parent_tools = self._collected_tools.copy()
+
+        # Set inherited history (parent context minus system message)
+        branch_instance._inherited_history = [
+            msg for msg in branch_history if msg.get("role") != "system"
+        ]
+
+        # Execute branch
+        try:
+            result = branch_instance(**kwargs)
+        except Exception as e:
+            raise BranchError(f"Branch execution failed: {e}")
+
+        # Apply merge strategy
+        if merge == "end_result":
+            merged_content = self._merge_end_result(result)
+        elif merge == "summarize":
+            merged_content = self._merge_summarize(branch_instance, result)
+        elif merge == "merge":
+            merged_content = self._merge_full(branch_instance, result)
+        else:
+            merged_content = self._merge_end_result(result)
+
+        return (result, merged_content)
+
+    def _merge_end_result(self, result):
+        """Merge strategy: return only the serialized final_output.
+
+        Args:
+            result: The branch's final_output instance (or None)
+
+        Returns:
+            JSON string of the result
+        """
+        if result is None:
+            return json.dumps({"status": "completed", "result": None})
+        return result.model_dump_json(indent=2)
+
+    def _merge_summarize(self, branch_instance, result):
+        """Merge strategy: LLM-generated summary of branch history + result.
+
+        Args:
+            branch_instance: The executed branch module instance
+            result: The branch's final_output instance (or None)
+
+        Returns:
+            Summary string
+        """
+        # Build summary prompt
+        history_text = self._format_branch_history(branch_instance.history)
+        result_text = result.model_dump_json(indent=2) if result else "None"
+
+        summary_messages = [
+            {"role": "system", "content": "Summarize the following branch execution concisely. Include key findings, actions taken, and the final result."},
+            {"role": "user", "content": f"Branch history:\n{history_text}\n\nFinal result:\n{result_text}"}
+        ]
+
+        # Use branch's model for summary
+        response = call_llm(
+            messages=summary_messages,
+            model=branch_instance.model,
+            tools=None,
+            temperature=0.3,
+            max_tokens=branch_instance.max_tokens,
+        )
+
+        summary = response.get("content", "")
+        return f"Branch summary:\n{summary}\n\nFinal result:\n{result_text}"
+
+    def _merge_full(self, branch_instance, result):
+        """Merge strategy: full transcript of branch steps + result.
+
+        Args:
+            branch_instance: The executed branch module instance
+            result: The branch's final_output instance (or None)
+
+        Returns:
+            Formatted transcript string
+        """
+        history_text = self._format_branch_history(branch_instance.history)
+        result_text = result.model_dump_json(indent=2) if result else "None"
+        return f"Branch transcript:\n{history_text}\n\nFinal result:\n{result_text}"
+
+    def _format_branch_history(self, history):
+        """Format branch history as readable text.
+
+        Args:
+            history: List of message dicts
+
+        Returns:
+            Formatted string
+        """
+        lines = []
+        for msg in history:
+            role = msg.get("role", "unknown")
+            if role == "system":
+                continue  # Skip system message
+            content = msg.get("content", "")
+            tool_calls = msg.get("tool_calls", [])
+
+            if role == "assistant" and tool_calls:
+                for tc in tool_calls:
+                    func = tc.get("function", tc)
+                    name = func.get("name", "unknown") if isinstance(func, dict) else getattr(func, "name", "unknown")
+                    args = func.get("arguments", "{}") if isinstance(func, dict) else getattr(func, "arguments", "{}")
+                    lines.append(f"[Assistant] Called {name}({args})")
+                if content:
+                    lines.append(f"[Assistant] {content}")
+            elif role == "tool":
+                lines.append(f"[Tool Result] {content}")
+            elif content:
+                lines.append(f"[{role.title()}] {content}")
+        return "\n".join(lines)
+
+    def branch(self, module_class, /, merge="end_result", **kwargs):
+        """Manually spawn a branch from within on_step or other callbacks.
+
+        Args:
+            module_class: The Module subclass to execute (positional-only)
+            merge: Merge strategy ('end_result', 'summarize', 'merge')
+            **kwargs: Arguments passed to the branch module's initial_input
+
+        Returns:
+            The branch's final_output instance (or None)
+        """
+        result, merged_content = self._execute_branch(module_class, merge, **kwargs)
+
+        # Inject merge result into parent history
+        self.history.append({
+            "role": "user",
+            "content": f"[Branch Result]\n{merged_content}"
+        })
+
+        return result
 
     def _generate_finish_tool(self) -> dict:
         """Generate the __finish__ tool from final_output schema.
