@@ -15,6 +15,26 @@ from acorn.llm import call_llm
 from acorn.types import Step, ToolCall, ToolResult
 
 
+# Models for branch listing
+class BranchFieldInfo(BaseModel):
+    """Schema field information for a branch input."""
+    name: str
+    required: bool
+    description: str = ""
+
+
+class BranchInfo(BaseModel):
+    """Information about an available branch."""
+    name: str
+    description: str
+    input_schema: list[BranchFieldInfo] = []
+
+
+class AvailableBranches(BaseModel):
+    """List of available branches."""
+    branches: list[BranchInfo]
+
+
 class Module:
     """Base class for LLM modules with structured I/O.
 
@@ -59,7 +79,7 @@ class Module:
     """
 
     # Default configuration
-    model: str | dict = "anthropic/claude-sonnet-4-5-20250514"
+    model: str | dict = ""
     temperature: float = 0.7
     max_tokens: int = 4096
     max_steps: int | None = None  # None = single-turn mode
@@ -96,6 +116,13 @@ class Module:
 
     def __init__(self):
         """Initialize the module."""
+        # Ensure model is set
+        if not self.model:
+            raise ValueError(
+                "model must be set. Provide a model string (e.g., 'anthropic/claude-sonnet-4-5-20250514') "
+                "or a model config dict with an 'id' key."
+            )
+
         # Validate model configuration
         self._validate_model_config()
 
@@ -698,9 +725,6 @@ class Module:
         elif callable(getattr(self.__class__, 'system_prompt', None)):
             # Call class method
             prompt_text = self.system_prompt()
-        elif self.__doc__:
-            # Use class docstring
-            prompt_text = self.__doc__
         else:
             # No system prompt
             prompt_text = ""
@@ -842,18 +866,27 @@ class Module:
             merge = kwargs.pop("merge", "end_result")
 
             if name is None:
-                # List mode: return available branches
+                # List mode: return available branches in XML
                 branch_list = []
                 for bclass in module_ref.branches:
-                    info = {"name": bclass.__name__}
-                    info["description"] = bclass.__doc__ or ""
+                    # Build input schema field list
+                    fields = []
                     if bclass.initial_input:
-                        schema = bclass.initial_input.model_json_schema()
-                        info["input_schema"] = schema
-                    else:
-                        info["input_schema"] = {}
-                    branch_list.append(info)
-                return json.dumps(branch_list, indent=2)
+                        for field_name, field_info in bclass.initial_input.model_fields.items():
+                            fields.append(BranchFieldInfo(
+                                name=field_name,
+                                required=field_info.is_required(),
+                                description=field_info.description or ""
+                            ))
+
+                    branch_list.append(BranchInfo(
+                        name=bclass.__name__,
+                        description=bclass.__doc__ or "",
+                        input_schema=fields
+                    ))
+
+                available = AvailableBranches(branches=branch_list)
+                return pydantic_to_xml(available, root_tag="available_branches", include_descriptions=False)
 
             # Execution mode - find branch class by name
             branch_class = None
@@ -1020,11 +1053,17 @@ class Module:
             result: The branch's final_output instance (or None)
 
         Returns:
-            JSON string of the result
+            XML string of the result
         """
         if result is None:
-            return json.dumps({"status": "completed", "result": None})
-        return result.model_dump_json(indent=2)
+            # Create a simple model for None result
+            class BranchResult(BaseModel):
+                status: str = "completed"
+                result: str = "None"
+
+            return pydantic_to_xml(BranchResult(), root_tag="branch_result", include_descriptions=False)
+
+        return pydantic_to_xml(result, root_tag="branch_result", include_descriptions=False)
 
     def _merge_summarize(self, branch_instance, result):
         """Merge strategy: LLM-generated summary of branch history + result.

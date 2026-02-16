@@ -20,11 +20,13 @@ class Answer(BaseModel):
 
 # Example 1: Default caching (recommended for most use cases)
 class AnalystWithDefaultCache(Module):
-    """You are a helpful data analyst.
+    """Helpful data analyst providing clear answers."""
 
-    You provide clear, concise answers to questions about data analysis.
-    Always cite your reasoning and provide examples when relevant.
-    """
+    system_prompt = """You are a helpful data analyst.
+
+You provide clear, concise answers to questions about data analysis.
+Always cite your reasoning and provide examples when relevant."""
+
     initial_input = Question
     final_output = Answer
     cache = True  # Caches system message and first user message
@@ -32,11 +34,13 @@ class AnalystWithDefaultCache(Module):
 
 # Example 2: Custom caching (advanced usage)
 class AnalystWithCustomCache(Module):
-    """You are a helpful data analyst.
+    """Helpful data analyst providing clear answers."""
 
-    You provide clear, concise answers to questions about data analysis.
-    Always cite your reasoning and provide examples when relevant.
-    """
+    system_prompt = """You are a helpful data analyst.
+
+You provide clear, concise answers to questions about data analysis.
+Always cite your reasoning and provide examples when relevant."""
+
     initial_input = Question
     final_output = Answer
     # Only cache the system message
@@ -45,11 +49,13 @@ class AnalystWithCustomCache(Module):
 
 # Example 3: No caching (default behavior)
 class AnalystWithoutCache(Module):
-    """You are a helpful data analyst.
+    """Helpful data analyst providing clear answers."""
 
-    You provide clear, concise answers to questions about data analysis.
-    Always cite your reasoning and provide examples when relevant.
-    """
+    system_prompt = """You are a helpful data analyst.
+
+You provide clear, concise answers to questions about data analysis.
+Always cite your reasoning and provide examples when relevant."""
+
     initial_input = Question
     final_output = Answer
     # cache = None (default - no caching)

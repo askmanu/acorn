@@ -150,14 +150,13 @@ class CopilotResponse(BaseModel):
 # =============================================================================
 
 class ApplyChangeBranch(Module):
-    """Apply a file change to the codebase.
+    """Apply file changes safely to the codebase."""
 
-    This branch is responsible for safely applying changes to files.
-    It can use call_parent_tool() to:
-    - Search for related files that might need updates
-    - Read current file contents before modifying
-    - Access any other parent tools as needed
-    """
+    system_prompt = """This branch is responsible for safely applying changes to files.
+It can use call_parent_tool() to:
+- Search for related files that might need updates
+- Read current file contents before modifying
+- Access any other parent tools as needed"""
 
     initial_input = FileChange
     final_output = ChangeResult
@@ -176,17 +175,16 @@ class ApplyChangeBranch(Module):
 # =============================================================================
 
 class CodeCopilot(Module):
-    """AI code copilot that helps with code modifications.
+    """AI code copilot that helps with code modifications."""
 
-    You are an AI coding assistant. When the user requests changes:
-    1. Analyze what needs to be changed
-    2. Search for relevant files if needed
-    3. Read current file contents
-    4. Use the ApplyChangeBranch to make changes safely
+    system_prompt = """You are an AI coding assistant. When the user requests changes:
+1. Analyze what needs to be changed
+2. Search for relevant files if needed
+3. Read current file contents
+4. Use the ApplyChangeBranch to make changes safely
 
-    The ApplyChangeBranch can call your tools using call_parent_tool(name="tool_name", ...).
-    For example, it might read files before modifying them, or search for related files.
-    """
+The ApplyChangeBranch can call your tools using call_parent_tool(name="tool_name", ...).
+For example, it might read files before modifying them, or search for related files."""
 
     initial_input = UserRequest
     final_output = CopilotResponse

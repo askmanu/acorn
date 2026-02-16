@@ -137,20 +137,6 @@ def test_system_prompt_from_string():
     assert msg["content"] == "You are a helpful assistant."
 
 
-def test_system_prompt_from_docstring():
-    """Test system prompt from class docstring."""
-    class Output(BaseModel):
-        result: str
-
-    class DocstringModule(Module):
-        """This is the system prompt from docstring."""
-        final_output = Output
-
-    mod = DocstringModule()
-    msg = mod._build_system_message()
-    assert "This is the system prompt from docstring" in msg["content"]
-
-
 def test_system_prompt_empty():
     """Test empty system prompt."""
     class Output(BaseModel):

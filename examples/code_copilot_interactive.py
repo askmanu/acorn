@@ -96,18 +96,17 @@ class CopilotResult(BaseModel):
 # =============================================================================
 
 class FileChangeBranch(Module):
-    """Apply file changes safely.
+    """Apply file changes safely."""
 
-    You are a file modification assistant. When asked to modify a file:
-    1. First, use call_parent_tool to read the current file contents
-    2. Verify the change makes sense
-    3. Apply the change using write_file
-    4. Confirm success
+    system_prompt = """You are a file modification assistant. When asked to modify a file:
+1. First, use call_parent_tool to read the current file contents
+2. Verify the change makes sense
+3. Apply the change using write_file
+4. Confirm success
 
-    You can access parent tools:
-    - call_parent_tool(name="read_file", filepath="...")
-    - call_parent_tool(name="search_files", pattern="...")
-    """
+You can access parent tools:
+- call_parent_tool(name="read_file", filepath="...")
+- call_parent_tool(name="search_files", pattern="...")"""
 
     initial_input = ChangeRequest
     final_output = ChangeResult
@@ -120,17 +119,16 @@ class FileChangeBranch(Module):
 # =============================================================================
 
 class CodeCopilot(Module):
-    """AI code copilot for making code changes.
+    """AI code copilot for making code changes."""
 
-    You help users modify their code. When a user requests a change:
-    1. Understand what needs to be changed
-    2. Search for the right file if needed
-    3. Read the current contents
-    4. Use the FileChangeBranch to apply the change
-    5. Return a summary of what was done
+    system_prompt = """You help users modify their code. When a user requests a change:
+1. Understand what needs to be changed
+2. Search for the right file if needed
+3. Read the current contents
+4. Use the FileChangeBranch to apply the change
+5. Return a summary of what was done
 
-    Use the 'branch' tool to delegate file modifications to the FileChangeBranch.
-    """
+Use the 'branch' tool to delegate file modifications to the FileChangeBranch."""
 
     initial_input = UserInput
     final_output = CopilotResult
