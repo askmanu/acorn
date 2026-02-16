@@ -39,6 +39,7 @@ def test_history_populated_single_turn():
         summary: str
 
     class TestModule(Module):
+        model = "test-model"
         initial_input = Input
         final_output = Output
 
@@ -68,6 +69,7 @@ def test_history_accessible_after_execution():
         result: str
 
     class HistoryModule(Module):
+        model = "test-model"
         final_output = Output
 
     with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
@@ -89,6 +91,7 @@ def test_history_multiple_executions():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         final_output = Output
 
     with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:

@@ -12,11 +12,12 @@ def test_module_instantiation():
         result: str
 
     class SimpleModule(Module):
+        model = "test-model"
         final_output = Output
 
     mod = SimpleModule()
     assert mod is not None
-    assert mod.model == "anthropic/claude-sonnet-4-5-20250514"
+    assert mod.model == "test-model"
     assert mod.temperature == 0.7
     assert mod.max_tokens == 4096
 
@@ -48,6 +49,7 @@ def test_module_collects_tools_from_list():
         result: str
 
     class ModuleWithTools(Module):
+        model = "test-model"
         tools = [external_tool]
         final_output = Output
 
@@ -62,6 +64,7 @@ def test_module_collects_tools_from_methods():
         result: str
 
     class ModuleWithMethods(Module):
+        model = "test-model"
         final_output = Output
 
         @tool
@@ -84,6 +87,7 @@ def test_module_collects_both_tool_types():
         result: str
 
     class MixedModule(Module):
+        model = "test-model"
         tools = [external_tool]
         final_output = Output
 
@@ -115,6 +119,7 @@ def test_tool_conflict_detection():
         result: str
 
     class ConflictModule(Module):
+        model = "test-model"
         tools = [my_tool, my_tool_copy]
         final_output = Output
 
@@ -128,6 +133,7 @@ def test_system_prompt_from_string():
         result: str
 
     class StringPromptModule(Module):
+        model = "test-model"
         system_prompt = "You are a helpful assistant."
         final_output = Output
 
@@ -143,6 +149,7 @@ def test_system_prompt_empty():
         result: str
 
     class NoPromptModule(Module):
+        model = "test-model"
         final_output = Output
 
     mod = NoPromptModule()
@@ -159,6 +166,7 @@ def test_schemas_defined():
         result: str
 
     class SchemaModule(Module):
+        model = "test-model"
         initial_input = Input
         final_output = Output
 
@@ -174,6 +182,7 @@ def test_finish_tool_generation():
         score: int
 
     class FinishModule(Module):
+        model = "test-model"
         final_output = Output
 
     mod = FinishModule()
@@ -192,6 +201,7 @@ def test_single_turn_mode():
         result: str
 
     class SingleTurnModule(Module):
+        model = "test-model"
         max_steps = None
         final_output = Output
 
@@ -202,6 +212,7 @@ def test_single_turn_mode():
 def test_init_validation_single_turn_requires_final_output():
     """Test that single-turn mode requires final_output."""
     class InvalidModule(Module):
+        model = "test-model"
         final_output = None
         # max_steps = None (default)
 

@@ -41,6 +41,7 @@ def test_single_turn_basic():
 
     class SummaryModule(Module):
         """Summarize text."""
+        model = "test-model"
         initial_input = Input
         final_output = Output
 
@@ -66,6 +67,7 @@ def test_single_turn_with_field_descriptions():
         results: str = Field(description="Search results")
 
     class SearchModule(Module):
+        model = "test-model"
         initial_input = Input
         final_output = Output
 
@@ -94,6 +96,7 @@ def test_single_turn_validation_error():
         count: int  # Expects int, will get string
 
     class CountModule(Module):
+        model = "test-model"
         final_output = Output
 
     with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
@@ -113,6 +116,7 @@ def test_single_turn_no_tool_call():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         final_output = Output
 
     with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
@@ -131,6 +135,7 @@ def test_single_turn_wrong_tool_call():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         final_output = Output
 
     with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
@@ -150,7 +155,8 @@ def test_single_turn_system_prompt():
         result: str
 
     class PromptModule(Module):
-        """You are a helpful assistant."""
+        model = "test-model"
+        system_prompt = "You are a helpful assistant."
         final_output = Output
 
     with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
@@ -201,6 +207,7 @@ def test_single_turn_multiple_output_fields():
         keywords: list[str]
 
     class AnalyzerModule(Module):
+        model = "test-model"
         final_output = Output
 
     with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
@@ -225,6 +232,7 @@ def test_multi_turn_is_implemented():
         result: str
 
     class MultiTurnModule(Module):
+        model = "test-model"
         max_steps = 5
         final_output = Output
 
@@ -241,6 +249,7 @@ def test_single_turn_retries_on_no_tool_calls():
         result: str
 
     class RetryModule(Module):
+        model = "test-model"
         final_output = Output
 
     with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:

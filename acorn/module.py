@@ -1252,7 +1252,7 @@ class Module:
             Validated output model, or None if no final_output defined
 
         Raises:
-            ParseError: If forced output fails validation after all retries
+            AcornError: If the model did not call __finish__ within max_steps
         """
         # If no final_output, just return None
         if self.final_output is None:
@@ -1296,12 +1296,16 @@ class Module:
                             error=e
                         )
 
-        except Exception as e:
-            # tool_choice not supported or failed - fall back to XML
-            return self._force_termination_xml()
+        except Exception:
+            # tool_choice not supported or failed - fall through to error
+            pass
 
-        # No tool call or wrong tool - fall back to XML
-        return self._force_termination_xml()
+        # Force termination failed — raise a clear error
+        raise AcornError(
+            f"Module reached max_steps ({self.max_steps}) without calling __finish__. "
+            f"The model did not produce a final output in the allowed number of steps. "
+            f"Consider increasing max_steps or simplifying the task."
+        )
 
     def _retry_forced_finish(
         self,
@@ -1384,150 +1388,3 @@ class Module:
                 error=e
             )
 
-    def _force_termination_xml(self) -> BaseModel:
-        """Force termination using XML fallback (when tool_choice not supported).
-
-        Appends XML instruction to history and parses XML response.
-
-        Returns:
-            Validated output model
-
-        Raises:
-            ParseError: If XML parsing or validation fails
-        """
-        from acorn.serialization import xml_to_pydantic
-
-        # Build XML template with field descriptions as attributes
-        xml_template_lines = [f"<{self.xml_output_root}>"]
-
-        for field_name, field_info in self.final_output.model_fields.items():
-            desc_attr = ""
-            if field_info.description:
-                # Escape quotes in description
-                escaped_desc = field_info.description.replace('"', '&quot;')
-                desc_attr = f' description="{escaped_desc}"'
-
-            xml_template_lines.append(f"    <{field_name}{desc_attr}></{field_name}>")
-
-        xml_template_lines.append(f"</{self.xml_output_root}>")
-        xml_template = "\n".join(xml_template_lines)
-
-        # Append instruction to history
-        instruction = (
-            f"You must provide your final answer now. "
-            f"Respond with your answer in the following XML structure:\n\n"
-            f"{xml_template}\n\n"
-            f"Fill in the values. Do not repeat the descriptions."
-        )
-
-        forced_history = self.history + [
-            {"role": "user", "content": instruction}
-        ]
-
-        # Call LLM without tools (text-only response)
-        response = call_llm(
-            messages=forced_history,
-            model=self.model,
-            tools=None,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            metadata=self.metadata,
-            cache=self.cache,
-            model_fallbacks=self.model_fallbacks or None,
-        )
-
-        # Parse XML from response content
-        content = response.get("content", "")
-
-        if not content:
-            raise ParseError(
-                "Empty response in XML forced termination",
-                raw_output=content
-            )
-
-        try:
-            # Parse XML to Pydantic model
-            result = xml_to_pydantic(content, self.final_output)
-            return result
-        except Exception as e:
-            # Try retry mechanism
-            return self._retry_xml_forced_finish(
-                forced_history,
-                content,
-                attempt=0,
-                error=e
-            )
-
-    def _retry_xml_forced_finish(
-        self,
-        history: list[dict],
-        failed_output: str,
-        attempt: int,
-        error: Exception
-    ) -> BaseModel:
-        """Retry XML forced finish after parsing/validation failure.
-
-        Args:
-            history: Message history with XML instruction
-            failed_output: The failed XML output
-            attempt: Current retry attempt number
-            error: The parsing/validation error
-
-        Returns:
-            Validated output model
-
-        Raises:
-            ParseError: If validation fails after all retries
-        """
-        from acorn.serialization import xml_to_pydantic
-
-        if attempt >= self.max_parse_retries:
-            # Out of retries
-            raise ParseError(
-                f"Failed to parse/validate XML forced output after {attempt} retries: {error}",
-                raw_output=failed_output
-            )
-
-        # Add error message and retry
-        error_msg = {
-            "role": "user",
-            "content": f"Error: Output parsing/validation failed: {error}\n\nPlease provide the XML output again with valid values."
-        }
-
-        retry_history = history + [
-            {"role": "assistant", "content": failed_output},
-            error_msg
-        ]
-
-        # Retry LLM call
-        response = call_llm(
-            messages=retry_history,
-            model=self.model,
-            tools=None,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            metadata=self.metadata,
-            cache=self.cache,
-            model_fallbacks=self.model_fallbacks or None,
-        )
-
-        content = response.get("content", "")
-
-        if not content:
-            raise ParseError(
-                f"Empty response in XML forced termination retry {attempt + 1}",
-                raw_output=content
-            )
-
-        try:
-            # Parse XML to Pydantic model
-            result = xml_to_pydantic(content, self.final_output)
-            return result
-        except Exception as e:
-            # Recursive retry
-            return self._retry_xml_forced_finish(
-                retry_history,
-                content,
-                attempt + 1,
-                error=e
-            )

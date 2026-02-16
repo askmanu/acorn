@@ -50,12 +50,15 @@ class AnswerOutput(BaseModel):
 
 class FactCheckBranch(Module):
     """Verify factual claims using available tools."""
+    model = "test-model"
+    system_prompt = "Verify factual claims using available tools."
     initial_input = ClaimInput
     final_output = VerificationOutput
 
 
 class MultiTurnBranch(Module):
     """A branch that uses multiple steps."""
+    model = "test-model"
     initial_input = ClaimInput
     final_output = VerificationOutput
     max_steps = 3
@@ -63,6 +66,7 @@ class MultiTurnBranch(Module):
 
 class NoBranchInput(Module):
     """A branch with no initial_input."""
+    model = "test-model"
     final_output = AnswerOutput
 
 
@@ -73,6 +77,7 @@ class NoBranchInput(Module):
 class TestBranchValidation:
     def test_branches_must_be_list(self):
         class Bad(Module):
+            model = "test-model"
             branches = {"not": "a list"}
             final_output = AnswerOutput
         with pytest.raises(ValueError, match="branches must be a list"):
@@ -80,6 +85,7 @@ class TestBranchValidation:
 
     def test_branch_values_must_be_module_subclass(self):
         class Bad(Module):
+            model = "test-model"
             branches = ["not a class"]
             final_output = AnswerOutput
         with pytest.raises(ValueError, match="must be a Module subclass"):
@@ -87,6 +93,7 @@ class TestBranchValidation:
 
     def test_branch_values_must_be_subclass_not_instance(self):
         class Bad(Module):
+            model = "test-model"
             branches = [int]
             final_output = AnswerOutput
         with pytest.raises(ValueError, match="must be a Module subclass"):
@@ -94,12 +101,15 @@ class TestBranchValidation:
 
     def test_duplicate_branch_names_rejected(self):
         class BranchA(Module):
+            model = "test-model"
             final_output = AnswerOutput
 
         class BranchA(Module):  # Same name
+            model = "test-model"
             final_output = VerificationOutput
 
         class Bad(Module):
+            model = "test-model"
             branches = [BranchA, BranchA]
             final_output = AnswerOutput
         with pytest.raises(ValueError, match="Duplicate branch class name"):
@@ -108,6 +118,7 @@ class TestBranchValidation:
 
     def test_empty_branches_is_valid(self):
         class Good(Module):
+            model = "test-model"
             branches = []
             final_output = AnswerOutput
         mod = Good()
@@ -115,6 +126,7 @@ class TestBranchValidation:
 
     def test_valid_branches_config(self):
         class Good(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
         mod = Good()
@@ -128,6 +140,7 @@ class TestBranchValidation:
 class TestBranchToolGeneration:
     def test_branch_tool_added_to_collected_tools(self):
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
         mod = Parent()
@@ -136,6 +149,7 @@ class TestBranchToolGeneration:
 
     def test_branch_tool_not_added_without_branches(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
         mod = Parent()
         tool_names = [t.__name__ for t in mod._collected_tools]
@@ -143,6 +157,7 @@ class TestBranchToolGeneration:
 
     def test_branch_tool_list_mode(self):
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
         mod = Parent()
@@ -156,15 +171,15 @@ class TestBranchToolGeneration:
 
         assert branch_tool is not None
 
-        # Call with no args -> list branches
-        result = json.loads(branch_tool())
-        assert len(result) == 1
-        assert result[0]["name"] == "FactCheckBranch"
-        assert "Verify factual claims" in result[0]["description"]
-        assert "input_schema" in result[0]
+        # Call with no args -> list branches (returns XML now)
+        result = branch_tool()
+        assert "FactCheckBranch" in result
+        assert "Verify factual claims" in result
+        assert "input_schema" in result
 
     def test_branch_tool_schema(self):
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
         mod = Parent()
@@ -178,6 +193,7 @@ class TestBranchToolGeneration:
 
     def test_branch_tool_invalid_name(self):
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
         mod = Parent()
@@ -188,6 +204,7 @@ class TestBranchToolGeneration:
 
     def test_branch_tool_invalid_merge_strategy(self):
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
         mod = Parent()
@@ -205,6 +222,7 @@ class TestBranchExecution:
     def test_branch_execution_end_result(self):
         """Test declarative branch execution with end_result merge."""
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
             max_steps = 3
@@ -244,6 +262,7 @@ class TestBranchExecution:
     def test_branch_execution_passes_kwargs(self):
         """Test that branch kwargs are passed to the branch module."""
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
 
@@ -262,13 +281,14 @@ class TestBranchExecution:
 
             assert result.verified is True
             assert result.explanation == "Sky is blue confirmed"
-            # Content should be JSON of the result
-            parsed = json.loads(content)
-            assert parsed["verified"] is True
+            # Content should be XML of the result
+            assert "<verified>true</verified>" in content
+            assert "<explanation>Sky is blue confirmed</explanation>" in content
 
     def test_branch_inherits_parent_history(self):
         """Test that branch receives parent history context."""
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
             max_steps = 3
@@ -318,6 +338,7 @@ class TestBranchExecution:
         """Test that branch uses its own system prompt, not parent's."""
         class Parent(Module):
             """Parent system prompt."""
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
 
@@ -351,24 +372,25 @@ class TestBranchExecution:
 class TestMergeStrategies:
     def test_merge_end_result(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
         mod = Parent()
         result = VerificationOutput(verified=True, explanation="OK")
         content = mod._merge_end_result(result)
-        parsed = json.loads(content)
-        assert parsed["verified"] is True
-        assert parsed["explanation"] == "OK"
+        assert "<verified>true</verified>" in content
+        assert "<explanation>OK</explanation>" in content
 
     def test_merge_end_result_none(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
         mod = Parent()
         content = mod._merge_end_result(None)
-        parsed = json.loads(content)
-        assert parsed["result"] is None
+        assert "<status>completed</status>" in content
 
     def test_merge_full(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
         mod = Parent()
 
@@ -393,6 +415,7 @@ class TestMergeStrategies:
 
     def test_merge_summarize(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
         mod = Parent()
 
@@ -431,6 +454,7 @@ class TestCallParentTool:
             return f"Results for: {query}"
 
         class Parent(Module):
+            model = "test-model"
             tools = [search]
             branches = [FactCheckBranch]
             final_output = AnswerOutput
@@ -454,6 +478,7 @@ class TestCallParentTool:
             return f"Results for: {query}"
 
         class Parent(Module):
+            model = "test-model"
             tools = [search]
             branches = [FactCheckBranch]
             final_output = AnswerOutput
@@ -467,6 +492,7 @@ class TestCallParentTool:
 
     def test_call_parent_tool_not_found(self):
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
 
@@ -484,6 +510,7 @@ class TestCallParentTool:
             return f"Results for: {query}"
 
         class Parent(Module):
+            model = "test-model"
             tools = [search]
             branches = [FactCheckBranch]
             final_output = AnswerOutput
@@ -518,6 +545,7 @@ class TestCallParentTool:
             return f"Results for: {query}"
 
         class Parent(Module):
+            model = "test-model"
             tools = [search]
             final_output = AnswerOutput
 
@@ -535,6 +563,7 @@ class TestCallParentTool:
 class TestManualBranching:
     def test_manual_branch_returns_result(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
             max_steps = 3
 
@@ -558,6 +587,7 @@ class TestManualBranching:
 
     def test_manual_branch_injects_to_history(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
             max_steps = 3
 
@@ -584,6 +614,7 @@ class TestManualBranching:
 
     def test_manual_branch_with_merge_strategy(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
 
         with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
@@ -612,6 +643,7 @@ class TestManualBranching:
     def test_manual_branch_not_in_branches_dict(self):
         """Manual branching doesn't require the class to be in self.branches."""
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
 
         with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
@@ -640,10 +672,12 @@ class TestBranchErrors:
     def test_branch_execution_failure_raises_branch_error(self):
         class FailingBranch(Module):
             """This branch will fail."""
+            model = "test-model"
             initial_input = ClaimInput
             final_output = VerificationOutput
 
         class Parent(Module):
+            model = "test-model"
             branches = [FailingBranch]
             final_output = AnswerOutput
 
@@ -669,11 +703,13 @@ class TestNestedBranching:
         """If a branch module has its own branches, it gets a branch tool."""
         class InnerBranch(Module):
             """Inner branch."""
+            model = "test-model"
             initial_input = ClaimInput
             final_output = VerificationOutput
 
         class OuterBranch(Module):
             """Outer branch with nested branches."""
+            model = "test-model"
             initial_input = ClaimInput
             final_output = VerificationOutput
             branches = [InnerBranch]
@@ -696,17 +732,20 @@ class TestNestedBranching:
 
         class InnerBranch(Module):
             """Inner branch."""
+            model = "test-model"
             initial_input = ClaimInput
             final_output = VerificationOutput
 
         class OuterBranch(Module):
             """Outer branch with nested branches."""
+            model = "test-model"
             tools = [inner_search]
             initial_input = ClaimInput
             final_output = VerificationOutput
             branches = [InnerBranch]
 
         class Parent(Module):
+            model = "test-model"
             tools = [outer_search]
             branches = [OuterBranch]
             final_output = AnswerOutput
@@ -734,12 +773,14 @@ class TestBranchMultiTurn:
 
         class MultiStepBranch(Module):
             """Multi-step verification branch."""
+            model = "test-model"
             initial_input = ClaimInput
             final_output = VerificationOutput
             max_steps = 3
             tools = [verify]
 
         class Parent(Module):
+            model = "test-model"
             branches = [MultiStepBranch]
             final_output = AnswerOutput
 
@@ -777,6 +818,7 @@ class TestBranchInAgenticLoop:
     def test_branch_result_returned_as_tool_result(self):
         """Test that branch results flow back properly in the parent loop."""
         class Parent(Module):
+            model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
             max_steps = 5
@@ -827,6 +869,7 @@ class TestBranchInAgenticLoop:
 class TestFormatBranchHistory:
     def test_format_skips_system_messages(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
         mod = Parent()
 
@@ -840,6 +883,7 @@ class TestFormatBranchHistory:
 
     def test_format_tool_calls(self):
         class Parent(Module):
+            model = "test-model"
             final_output = AnswerOutput
         mod = Parent()
 
@@ -861,6 +905,7 @@ class TestFormatBranchHistory:
 class TestBranchNoInitialInput:
     def test_branch_without_initial_input(self):
         class Parent(Module):
+            model = "test-model"
             branches = [NoBranchInput]
             final_output = AnswerOutput
 
