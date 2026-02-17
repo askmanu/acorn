@@ -22,6 +22,7 @@ Build AI agents with type-safe inputs and outputs, automatic tool calling, and p
 - 🔌 **LiteLLM Integration** - Works with any LLM provider
 - 🌊 **Streaming Responses** - Real-time output with partial structured updates
 - 💾 **Provider Caching** - Reduce latency and cost with prompt caching
+- 🛡️ **Model Fallbacks** - Automatic provider failover for high availability
 
 ---
 
@@ -141,6 +142,7 @@ Base class for LLM agents. Configure with:
 - `final_output` - Pydantic model for output schema
 - `tools` - List of available tools
 - `cache` - Enable provider-level prompt caching
+- `model_fallbacks` - List of fallback models for automatic failover
 
 ### Tools
 Functions the LLM can call:
@@ -225,6 +227,7 @@ pytest tests/test_agentic_loop.py -v
 - Streaming responses with partial structured output
 - Forced termination strategies
 - Provider caching
+- Model fallbacks
 
 ### 📋 Planned
 - Branching workflows
