@@ -21,8 +21,7 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 class HNStoryInput(BaseModel):
-    story_url: str = Field(description="Hacker News story URL, e.g. https://news.ycombinator.com/item?id=43234567")
-
+    story_url: str = Field(description="Show HN: story URL")
 
 class ProductionReadinessReport(BaseModel):
     grade: Optional[str] = Field(description="Production readiness grade: A, B, C, D, or F")
