@@ -43,4 +43,4 @@ jobs:
           git config user.name "GitHub Actions"
           git add -A
           git commit -m "Deploy from GitHub ${GITHUB_SHA::7}"
-          git push --force https://askmanu:$HF_TOKEN@huggingface.co/spaces/askmanu/acorn main
+          git push --force https://aonel:$HF_TOKEN@huggingface.co/spaces/askmanu/acorn main
