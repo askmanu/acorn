@@ -1,8 +1,8 @@
 """Demo registry and model presets."""
 
 from examples.bus_factor import BusFactorCalculator
-from examples.hn_themes import HackerNewsThemes
-from examples.research_assistant import ResearchAssistant
+from examples.doc_coverage import DocCoverageAnalyzer
+from examples.hn_production_check import HNProductionChecker
 from examples.simple_qa import SimpleQA
 
 
@@ -21,32 +21,48 @@ DEMO_MODULES = {
             "text": "What is the capital of France?"
         },
     },
-    "hn_themes": {
-        "title": "Hacker News Themes",
-        "module_class": HackerNewsThemes,
+    "hn_production_check": {
+        "title": "HN Production Readiness",
+        "module_class": HNProductionChecker,
         "description": (
-            "Fetches top stories from Hacker News and analyzes common themes. "
-            "Demonstrates API integration and multi-step data gathering with tools. "
-            "Returns structured output with story details and thematic analysis."
+            "Determines if a trending Hacker News project is production-ready or just a cool demo. "
+            "Checks GitHub maturity markers (LICENSE, CONTRIBUTING, tests, CI/CD) and mines HN comments "
+            "for technical concerns. Returns a Production Readiness Grade (A–F)."
         ),
         "category": "Agentic",
-        "source_file": "hn_themes.py",
+        "source_file": "hn_production_check.py",
         "default_inputs": {
-            "num_stories": 10
+            "story_url": "https://news.ycombinator.com/item?id=47018675"
+        },
+        "env_inputs": {
+            "GITHUB_TOKEN": {
+                "label": "GitHub Token (optional)",
+                "description": "Personal access token — higher rate limits (60 → 5,000 req/hr)",
+                "placeholder": "ghp_...",
+            }
         },
     },
-    "research_assistant": {
-        "title": "Research Assistant",
-        "module_class": ResearchAssistant,
+    "doc_coverage": {
+        "title": "Documentation Coverage",
+        "module_class": DocCoverageAnalyzer,
         "description": (
-            "Multi-step research agent that searches the web, finds academic papers, "
-            "and analyzes data to produce a structured report with sources and confidence levels."
+            "Scores the documentation coverage of a GitHub repository (0–100). "
+            "Uses the GitHub recursive file tree to identify project type and complexity, "
+            "checks for standard docs files (README, LICENSE, CONTRIBUTING, docs/), "
+            "then reads key source files to measure inline docstring coverage. "
+            "Returns a score, the top 5 most important undocumented functions, and a narrative summary."
         ),
         "category": "Agentic",
-        "source_file": "research_assistant.py",
+        "source_file": "doc_coverage.py",
         "default_inputs": {
-            "topic": "Large Language Models",
-            "depth": "shallow",
+            "repo_url": "https://github.com/pallets/flask"
+        },
+        "env_inputs": {
+            "GITHUB_TOKEN": {
+                "label": "GitHub Token (optional)",
+                "description": "Personal access token — higher rate limits (60 → 5,000 req/hr)",
+                "placeholder": "ghp_...",
+            }
         },
     },
     "bus_factor": {

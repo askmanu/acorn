@@ -108,9 +108,12 @@ def build_demo_page(demo_key: str):
 
         # Default info column (shown by default)
         with gr.Column(visible=True) as default_group:
-            gr.Markdown(
-                "Uses our shared hosted models and keys, **rate-limited**.\n\n"
-                "**Note**: Switch to Custom to use your own API key and model for testing."
+            gr.Markdown("""Uses our shared hosted models and keys, **rate-limited**.
+
+                **Note**: You might get `Error code: 502` sometimes.
+
+                Switch to Custom to use your own API key and model for testing.
+                """
             )
             gr.Dropdown(
                 choices=["GLM5 (modal)"],
@@ -157,7 +160,9 @@ def build_demo_page(demo_key: str):
     )
 
     gr.Markdown(f"# {config['title']}")
-    gr.Markdown(f"{config['description']}")
+    source_file = config["source_file"]
+    source_url = f"https://github.com/askmanu/acorn/blob/main/examples/{source_file}"
+    gr.Markdown(f"{config['description']}\n\nFile: [{source_file}]({source_url})")
 
     # Two-column layout for input and output
     with gr.Row(equal_height=False):
