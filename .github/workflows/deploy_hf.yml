@@ -37,19 +37,10 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git config --global user.email "github-actions@github.com"
-          git config --global user.name "GitHub Actions"
-          git config --global credential.helper store
-          printf "https://user:%s@huggingface.co\n" "$HF_TOKEN" >> ~/.git-credentials
-
-          git clone https://huggingface.co/spaces/askmanu/acorn hf_space_git
-
-          # Replace contents (preserve .git)
-          find hf_space_git -maxdepth 1 ! -name '.git' ! -name '.' -exec rm -rf {} +
-          cp -r hf_space/. hf_space_git/
-
-          cd hf_space_git
+          cd hf_space
+          git init --initial-branch=main
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
           git add -A
-          git diff --cached --quiet && echo "No changes to deploy" && exit 0
           git commit -m "Deploy from GitHub ${GITHUB_SHA::7}"
-          git push
+          git push --force https://askmanu:$HF_TOKEN@huggingface.co/spaces/askmanu/acorn main
