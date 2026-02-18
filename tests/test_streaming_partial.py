@@ -166,6 +166,7 @@ def test_streaming_finish_with_partial_updates():
     collected_chunks = []
 
     class TestModule(Module):
+        model = "test-model"
         stream = True
         final_output = SimpleOutput
 
@@ -200,6 +201,7 @@ def test_streaming_finish_progressive_fields():
     collected_chunks = []
 
     class TestModule(Module):
+        model = "test-model"
         stream = True
         max_steps = 3
         final_output = SimpleOutput
@@ -238,6 +240,7 @@ def test_streaming_non_finish_tool_no_partial():
     collected_chunks = []
 
     class TestModule(Module):
+        model = "test-model"
         stream = True
         max_steps = 3
         final_output = SimpleOutput
@@ -273,6 +276,7 @@ def test_streaming_with_no_schema():
     collected_chunks = []
 
     class TestModuleNoSchema(Module):
+        model = "test-model"
         stream = True
         max_steps = 3
         # No final_output defined
@@ -305,6 +309,7 @@ def test_partial_streaming_complex_types():
     collected_chunks = []
 
     class TestModuleComplex(Module):
+        model = "test-model"
         stream = True
         final_output = ComplexOutput
 

@@ -1,0 +1,51 @@
+name: Deploy to HuggingFace Spaces
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build HF Space staging directory
+        run: |
+          mkdir -p hf_space/examples hf_space/demo
+
+          # Entry point
+          cp examples/app.py hf_space/app.py
+
+          # Example modules (as a Python package)
+          touch hf_space/examples/__init__.py
+          cp examples/simple_qa.py hf_space/examples/
+          cp examples/bus_factor.py hf_space/examples/
+          cp examples/hn_production_check.py hf_space/examples/
+          cp examples/doc_coverage.py hf_space/examples/
+
+          # Gradio UI code
+          cp -r examples/demo/. hf_space/demo/
+
+          # Tracked repo files (no heredocs)
+          cp examples/requirements.txt hf_space/requirements.txt
+          cp examples/hf_README.md hf_space/README.md
+
+      - name: Push to HuggingFace Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+          git clone https://user:$HF_TOKEN@huggingface.co/spaces/askmanu/acorn hf_space_git
+
+          # Replace contents (preserve .git)
+          find hf_space_git -maxdepth 1 ! -name '.git' ! -name '.' -exec rm -rf {} +
+          cp -r hf_space/. hf_space_git/
+
+          cd hf_space_git
+          git add -A
+          git diff --cached --quiet && echo "No changes to deploy" && exit 0
+          git commit -m "Deploy from GitHub ${GITHUB_SHA::7}"
+          git push

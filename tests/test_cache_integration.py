@@ -41,6 +41,7 @@ def test_single_turn_with_cache_true():
     """Test single-turn module with cache=True."""
     class CachedModule(Module):
         """Test module."""
+        model = "test-model"
         initial_input = Input
         final_output = Output
         cache = True
@@ -68,6 +69,7 @@ def test_single_turn_with_custom_cache():
     """Test single-turn module with custom cache configuration."""
     class CustomCachedModule(Module):
         """Test module."""
+        model = "test-model"
         initial_input = Input
         final_output = Output
         cache = [{"location": "message", "role": "system"}]
@@ -94,6 +96,7 @@ def test_module_without_cache():
     """Test module without cache (backwards compatibility)."""
     class NoCacheModule(Module):
         """Test module."""
+        model = "test-model"
         initial_input = Input
         final_output = Output
         # cache not specified (defaults to None)
@@ -123,6 +126,7 @@ def test_multi_turn_with_cache():
 
     class MultiTurnCached(Module):
         """Multi-turn agent with cache."""
+        model = "test-model"
         max_steps = 2
         tools = [mock_tool]
         final_output = Output

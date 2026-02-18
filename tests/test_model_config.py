@@ -196,6 +196,7 @@ def test_model_fallbacks_empty():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         final_output = Output
 
     mod = TestModule()
@@ -208,6 +209,7 @@ def test_model_fallbacks_string_entries():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         model_fallbacks = ["gpt-4", "anthropic/claude-3-5-sonnet-20241022"]
         final_output = Output
 
@@ -221,6 +223,7 @@ def test_model_fallbacks_dict_entries():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         model_fallbacks = [
             {"id": "gpt-4", "api_key": "sk-test"},
             {"id": "vertex_ai/gemini-pro", "vertex_location": "us-central1"},
@@ -237,6 +240,7 @@ def test_model_fallbacks_mixed_entries():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         model_fallbacks = [
             "gpt-4",
             {"id": "vertex_ai/gemini-pro", "vertex_location": "us-central1"},
@@ -253,6 +257,7 @@ def test_model_fallbacks_dict_missing_id():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         model_fallbacks = [{"api_key": "sk-test"}]
         final_output = Output
 
@@ -266,6 +271,7 @@ def test_model_fallbacks_dict_invalid_keys():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         model_fallbacks = [{"id": "gpt-4", "invalid_key": "value"}]
         final_output = Output
 
@@ -279,6 +285,7 @@ def test_model_fallbacks_invalid_type():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         model_fallbacks = [42]
         final_output = Output
 
@@ -292,6 +299,7 @@ def test_model_fallbacks_invalid_reasoning():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         model_fallbacks = [{"id": "gpt-4", "reasoning": "invalid"}]
         final_output = Output
 
@@ -305,6 +313,7 @@ def test_model_fallbacks_valid_reasoning():
         result: str
 
     class TestModule(Module):
+        model = "test-model"
         model_fallbacks = [
             {"id": "gpt-4", "reasoning": True},
             {"id": "gpt-4", "reasoning": "high"},

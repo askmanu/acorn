@@ -44,6 +44,7 @@ def test_agentic_loop_basic():
         answer: str
 
     class AgenticModule(Module):
+        model = "test-model"
         max_steps = 3
         tools = [search]
         final_output = Output
@@ -83,6 +84,7 @@ def test_agentic_loop_multiple_tools():
         formatted: str
 
     class CalculatorModule(Module):
+        model = "test-model"
         max_steps = 5
         tools = [calculate, format_result]
         final_output = Output
@@ -121,6 +123,7 @@ def test_agentic_loop_tool_error():
         result: str
 
     class ErrorModule(Module):
+        model = "test-model"
         max_steps = 3
         tools = [failing_tool]
         final_output = Output
@@ -165,6 +168,7 @@ def test_agentic_loop_max_steps_forced_termination_tool_choice():
         result: str
 
     class EndlessModule(Module):
+        model = "test-model"
         max_steps = 2
         tools = [endless_tool]
         final_output = Output
@@ -197,8 +201,8 @@ def test_agentic_loop_max_steps_forced_termination_tool_choice():
         assert last_call_kwargs["tool_choice"]["function"]["name"] == "__finish__"
 
 
-def test_agentic_loop_max_steps_forced_termination_xml_fallback():
-    """Test forced termination falls back to XML when tool_choice fails."""
+def test_agentic_loop_max_steps_forced_termination_raises_error():
+    """Test forced termination raises AcornError when tool_choice fails."""
     @tool
     def endless_tool() -> str:
         """A tool that keeps running."""
@@ -208,6 +212,7 @@ def test_agentic_loop_max_steps_forced_termination_xml_fallback():
         result: str
 
     class EndlessModule(Module):
+        model = "test-model"
         max_steps = 2
         tools = [endless_tool]
         final_output = Output
@@ -222,24 +227,15 @@ def test_agentic_loop_max_steps_forced_termination_xml_fallback():
             if "tool_choice" in kwargs:
                 raise Exception("tool_choice not supported")
 
-            # If no tools (XML fallback), return XML content
-            if not kwargs.get("tools"):
-                xml_response = MockResponse(content="<output><result>xml forced output</result></output>")
-                xml_response.choices[0].message.tool_calls = []  # No tool calls
-                return xml_response
-
             # Normal tool call
             return MockResponse(tool_calls=[endless_call])
 
         mock_completion.side_effect = mock_side_effect
 
         mod = EndlessModule()
-        result = mod()
 
-        # Should have forced termination via XML
-        assert result.result == "xml forced output"
-        # Called: 2 for steps, 1 failed tool_choice, 1 XML fallback = 4
-        assert mock_completion.call_count == 4
+        with pytest.raises(AcornError, match="reached max_steps"):
+            mod()
 
 
 def test_agentic_loop_history_accumulates():
@@ -253,6 +249,7 @@ def test_agentic_loop_history_accumulates():
         result: str
 
     class HistoryModule(Module):
+        model = "test-model"
         max_steps = 3
         tools = [get_data]
         final_output = Output
@@ -290,6 +287,7 @@ def test_agentic_loop_on_step_callback():
         result: str
 
     class CallbackModule(Module):
+        model = "test-model"
         max_steps = 3
         tools = [my_tool]
         final_output = Output
@@ -328,6 +326,7 @@ def test_agentic_loop_step_finish():
         result: str
 
     class EarlyExitModule(Module):
+        model = "test-model"
         max_steps = 5
         tools = [my_tool]
         final_output = Output
@@ -366,6 +365,7 @@ def test_agentic_loop_add_tool():
         result: str
 
     class DynamicToolModule(Module):
+        model = "test-model"
         max_steps = 5
         tools = [initial_tool]
         final_output = Output
@@ -414,6 +414,7 @@ def test_agentic_loop_remove_tool():
         result: str
 
     class RemoveToolModule(Module):
+        model = "test-model"
         max_steps = 5
         tools = [tool_to_remove, permanent_tool]
         final_output = Output
@@ -457,6 +458,7 @@ def test_agentic_loop_retries_on_no_tool_calls():
         answer: str
 
     class RetryModule(Module):
+        model = "test-model"
         max_steps = 5
         tools = [search]
         final_output = Output
@@ -497,6 +499,7 @@ def test_agentic_loop_fails_after_max_retries_no_tool_calls():
         answer: str
 
     class RetryFailModule(Module):
+        model = "test-model"
         max_steps = 10
         max_parse_retries = 2
         tools = [search]

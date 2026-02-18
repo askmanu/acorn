@@ -1,5 +1,6 @@
 """Core module class for Acorn."""
 
+import copy
 import json
 import inspect
 from pathlib import Path
@@ -7,11 +8,31 @@ from typing import Any
 from pydantic import BaseModel
 import litellm
 
-from acorn.exceptions import AcornError, ParseError, ToolConflictError
+from acorn.exceptions import AcornError, BranchError, ParseError, ToolConflictError
 from acorn.serialization import pydantic_to_xml
 from acorn.tool_schema import generate_tool_schema
 from acorn.llm import call_llm
 from acorn.types import Step, ToolCall, ToolResult
+
+
+# Models for branch listing
+class BranchFieldInfo(BaseModel):
+    """Schema field information for a branch input."""
+    name: str
+    required: bool
+    description: str = ""
+
+
+class BranchInfo(BaseModel):
+    """Information about an available branch."""
+    name: str
+    description: str
+    input_schema: list[BranchFieldInfo] = []
+
+
+class AvailableBranches(BaseModel):
+    """List of available branches."""
+    branches: list[BranchInfo]
 
 
 class Module:
@@ -58,7 +79,7 @@ class Module:
     """
 
     # Default configuration
-    model: str | dict = "anthropic/claude-sonnet-4-5-20250514"
+    model: str | dict = ""
     temperature: float = 0.7
     max_tokens: int = 4096
     max_steps: int | None = None  # None = single-turn mode
@@ -70,6 +91,9 @@ class Module:
 
     # Tools
     tools: list = []
+
+    # Branches (sub-agent modules)
+    branches: list = []
 
     # Metadata for LiteLLM tracking
     metadata: dict | None = None
@@ -92,6 +116,13 @@ class Module:
 
     def __init__(self):
         """Initialize the module."""
+        # Ensure model is set
+        if not self.model:
+            raise ValueError(
+                "model must be set. Provide a model string (e.g., 'anthropic/claude-sonnet-4-5-20250514') "
+                "or a model config dict with an 'id' key."
+            )
+
         # Validate model configuration
         self._validate_model_config()
 
@@ -101,6 +132,9 @@ class Module:
         # Validate cache configuration
         self._validate_cache_config()
 
+        # Validate branches configuration (basic type checks)
+        self._validate_branches()
+
         # Validate final_output requirement for single-turn
         if self.max_steps is None and self.final_output is None:
             raise ValueError(
@@ -108,7 +142,7 @@ class Module:
                 "Set max_steps to enable multi-turn mode without final_output."
             )
 
-        # Collect all tools
+        # Collect all tools (includes branch tool if branches configured)
         self._collected_tools = self._collect_all_tools()
 
         # Check for tool name conflicts
@@ -116,6 +150,10 @@ class Module:
 
         # History for multi-turn (will be used in Phase 6)
         self.history = []
+
+        # Internal attributes for branching (set during branch execution)
+        self._parent_tools = []  # Parent's tools (for call_parent_tool())
+        self._inherited_history = None  # Deep-copied parent history
 
     def _validate_model_config(self):
         """Validate model configuration.
@@ -246,6 +284,34 @@ class Module:
                     f"cache[{i}]['index'] must be an int, got: {type(item['index']).__name__}"
                 )
 
+    def _validate_branches(self):
+        """Validate branches configuration (type checks only).
+
+        Raises:
+            ValueError: If branches config is invalid
+        """
+        if not self.branches:
+            return
+
+        if not isinstance(self.branches, list):
+            raise ValueError(
+                f"branches must be a list, got: {type(self.branches).__name__}"
+            )
+
+        # Check each item is a Module subclass
+        seen_names = set()
+        for i, branch_class in enumerate(self.branches):
+            if not (isinstance(branch_class, type) and issubclass(branch_class, Module)):
+                raise ValueError(
+                    f"branches[{i}] must be a Module subclass, got: {branch_class}"
+                )
+
+            # Check for duplicate class names
+            name = branch_class.__name__
+            if name in seen_names:
+                raise ValueError(f"Duplicate branch class name: {name}")
+            seen_names.add(name)
+
     def __call__(self, **kwargs) -> BaseModel | None:
         """Execute the module with provided inputs.
 
@@ -294,13 +360,24 @@ class Module:
             # No initial_input schema
             user_message = {"role": "user", "content": str(kwargs)}
 
-        messages = [system_message, user_message]
+        messages = [system_message]
+
+        # Prepend inherited history if this is a branch
+        if self._inherited_history:
+            messages.extend(self._inherited_history)
+
+        messages.append(user_message)
 
         # Initialize history
         self.history = messages.copy()
 
         # 4. Collect tools and add __finish__
         tools_list = self._collected_tools.copy()
+
+        # Add call_parent_tool if this is a branch with parent tools
+        if self._parent_tools:
+            tools_list.append(self._generate_parent_tool(self._parent_tools))
+
         finish_tool = self._generate_finish_tool()
         tools_list.append(finish_tool)
 
@@ -418,10 +495,21 @@ class Module:
             user_message = {"role": "user", "content": str(kwargs)}
 
         # Initialize history
-        self.history = [system_message, user_message]
+        self.history = [system_message]
+
+        # Prepend inherited history if this is a branch
+        if self._inherited_history:
+            self.history.extend(self._inherited_history)
+
+        self.history.append(user_message)
 
         # 4. Collect tools and add __finish__
         current_tools = self._collected_tools.copy()
+
+        # Add call_parent_tool if this is a branch with parent tools
+        if self._parent_tools:
+            current_tools.append(self._generate_parent_tool(self._parent_tools))
+
         finish_tool = self._generate_finish_tool()
         current_tools.append(finish_tool)
 
@@ -637,9 +725,6 @@ class Module:
         elif callable(getattr(self.__class__, 'system_prompt', None)):
             # Call class method
             prompt_text = self.system_prompt()
-        elif self.__doc__:
-            # Use class docstring
-            prompt_text = self.__doc__
         else:
             # No system prompt
             prompt_text = ""
@@ -747,6 +832,10 @@ class Module:
             if callable(attr) and hasattr(attr, "_tool_schema"):
                 collected.append(attr)
 
+        # Add branch tool if branches are configured
+        if self.branches:
+            collected.append(self._generate_branch_tool())
+
         return collected
 
     def _check_tool_conflicts(self):
@@ -762,6 +851,316 @@ class Module:
             if name in names:
                 raise ToolConflictError(f"Duplicate tool name: {name}")
             names.add(name)
+
+    def _generate_branch_tool(self):
+        """Generate the branch() tool for spawning sub-agent branches.
+
+        Returns:
+            A callable with _tool_schema for branch invocation.
+        """
+        module_ref = self
+
+        def branch(**kwargs):
+            """Spawn a sub-agent branch. Call with no args to list available branches and their input schemas. Call with name and the branch's required input args to start it."""
+            name = kwargs.pop("name", None)
+            merge = kwargs.pop("merge", "end_result")
+
+            if name is None:
+                # List mode: return available branches in XML
+                branch_list = []
+                for bclass in module_ref.branches:
+                    # Build input schema field list
+                    fields = []
+                    if bclass.initial_input:
+                        for field_name, field_info in bclass.initial_input.model_fields.items():
+                            fields.append(BranchFieldInfo(
+                                name=field_name,
+                                required=field_info.is_required(),
+                                description=field_info.description or ""
+                            ))
+
+                    branch_list.append(BranchInfo(
+                        name=bclass.__name__,
+                        description=bclass.__doc__ or "",
+                        input_schema=fields
+                    ))
+
+                available = AvailableBranches(branches=branch_list)
+                return pydantic_to_xml(available, root_tag="available_branches", include_descriptions=False)
+
+            # Execution mode - find branch class by name
+            branch_class = None
+            for bclass in module_ref.branches:
+                if bclass.__name__ == name:
+                    branch_class = bclass
+                    break
+
+            if branch_class is None:
+                available = [b.__name__ for b in module_ref.branches]
+                raise BranchError(f"Branch '{name}' not found. Available: {available}")
+
+            if merge not in ("end_result", "summarize", "merge"):
+                raise BranchError(f"Invalid merge strategy '{merge}'. Must be: end_result, summarize, merge")
+
+            result, merged_content = module_ref._execute_branch(branch_class, merge, **kwargs)
+            return merged_content
+
+        branch.__name__ = "branch"
+
+        branch._tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "branch",
+                "description": (
+                    "Spawn a sub-agent branch. Call with no args to list available branches "
+                    "and their input schemas. Call with name and the branch's required input args to start it."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Name of the branch to spawn"},
+                        "merge": {
+                            "type": "string",
+                            "enum": ["merge", "summarize", "end_result"],
+                            "description": "How to merge branch results. Default: end_result"
+                        }
+                    },
+                    "additionalProperties": True
+                }
+            }
+        }
+
+        return branch
+
+    def _generate_parent_tool(self, parent_tools):
+        """Generate the call_parent_tool() tool for accessing parent module's tools.
+
+        Args:
+            parent_tools: List of parent's collected tools
+
+        Returns:
+            A callable with _tool_schema for parent tool invocation.
+        """
+        # Filter out __finish__ and branch from parent tools
+        filtered_tools = [
+            t for t in parent_tools
+            if t.__name__ not in ("__finish__", "branch")
+        ]
+
+        def call_parent_tool(**kwargs):
+            """Call a tool from the parent module. Call with no args to list available parent tools. Call with name and the tool's args to execute it."""
+            name = kwargs.pop("name", None)
+
+            if name is None:
+                # List mode
+                tool_list = []
+                for t in filtered_tools:
+                    schema = generate_tool_schema(t) if not hasattr(t, "_tool_schema") else t._tool_schema
+                    tool_list.append({
+                        "name": t.__name__,
+                        "schema": schema.get("function", schema)
+                    })
+                return json.dumps(tool_list, indent=2)
+
+            # Execution mode
+            tool_func = None
+            for t in filtered_tools:
+                if t.__name__ == name:
+                    tool_func = t
+                    break
+
+            if tool_func is None:
+                available = [t.__name__ for t in filtered_tools]
+                raise BranchError(f"Parent tool '{name}' not found. Available: {available}")
+
+            return tool_func(**kwargs)
+
+        call_parent_tool.__name__ = "call_parent_tool"
+
+        call_parent_tool._tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "call_parent_tool",
+                "description": (
+                    "Call a tool from the parent module. Call with no args to list available parent tools. "
+                    "Call with name and the tool's args to execute it."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Name of the parent tool to call"}
+                    },
+                    "additionalProperties": True
+                }
+            }
+        }
+
+        return call_parent_tool
+
+    def _execute_branch(self, branch_class, merge="end_result", **kwargs):
+        """Execute a branch module and return result with merged content.
+
+        Args:
+            branch_class: The Module subclass to execute as a branch
+            merge: Merge strategy ('end_result', 'summarize', 'merge')
+            **kwargs: Arguments passed to the branch module's initial_input
+
+        Returns:
+            Tuple of (result BaseModel instance or None, merged_content string)
+
+        Raises:
+            BranchError: If branch execution fails
+        """
+        # Deep-copy parent history
+        branch_history = copy.deepcopy(self.history)
+
+        # Instantiate branch
+        try:
+            branch_instance = branch_class()
+        except Exception as e:
+            raise BranchError(f"Failed to instantiate branch: {e}")
+
+        # Set parent tools for call_parent_tool() access
+        branch_instance._parent_tools = self._collected_tools.copy()
+
+        # Set inherited history (parent context minus system message)
+        branch_instance._inherited_history = [
+            msg for msg in branch_history if msg.get("role") != "system"
+        ]
+
+        # Execute branch
+        try:
+            result = branch_instance(**kwargs)
+        except Exception as e:
+            raise BranchError(f"Branch execution failed: {e}")
+
+        # Apply merge strategy
+        if merge == "end_result":
+            merged_content = self._merge_end_result(result)
+        elif merge == "summarize":
+            merged_content = self._merge_summarize(branch_instance, result)
+        elif merge == "merge":
+            merged_content = self._merge_full(branch_instance, result)
+        else:
+            merged_content = self._merge_end_result(result)
+
+        return (result, merged_content)
+
+    def _merge_end_result(self, result):
+        """Merge strategy: return only the serialized final_output.
+
+        Args:
+            result: The branch's final_output instance (or None)
+
+        Returns:
+            XML string of the result
+        """
+        if result is None:
+            # Create a simple model for None result
+            class BranchResult(BaseModel):
+                status: str = "completed"
+                result: str = "None"
+
+            return pydantic_to_xml(BranchResult(), root_tag="branch_result", include_descriptions=False)
+
+        return pydantic_to_xml(result, root_tag="branch_result", include_descriptions=False)
+
+    def _merge_summarize(self, branch_instance, result):
+        """Merge strategy: LLM-generated summary of branch history + result.
+
+        Args:
+            branch_instance: The executed branch module instance
+            result: The branch's final_output instance (or None)
+
+        Returns:
+            Summary string
+        """
+        # Build summary prompt
+        history_text = self._format_branch_history(branch_instance.history)
+        result_text = result.model_dump_json(indent=2) if result else "None"
+
+        summary_messages = [
+            {"role": "system", "content": "Summarize the following branch execution concisely. Include key findings, actions taken, and the final result."},
+            {"role": "user", "content": f"Branch history:\n{history_text}\n\nFinal result:\n{result_text}"}
+        ]
+
+        # Use branch's model for summary
+        response = call_llm(
+            messages=summary_messages,
+            model=branch_instance.model,
+            tools=None,
+            temperature=0.3,
+            max_tokens=branch_instance.max_tokens,
+        )
+
+        summary = response.get("content", "")
+        return f"Branch summary:\n{summary}\n\nFinal result:\n{result_text}"
+
+    def _merge_full(self, branch_instance, result):
+        """Merge strategy: full transcript of branch steps + result.
+
+        Args:
+            branch_instance: The executed branch module instance
+            result: The branch's final_output instance (or None)
+
+        Returns:
+            Formatted transcript string
+        """
+        history_text = self._format_branch_history(branch_instance.history)
+        result_text = result.model_dump_json(indent=2) if result else "None"
+        return f"Branch transcript:\n{history_text}\n\nFinal result:\n{result_text}"
+
+    def _format_branch_history(self, history):
+        """Format branch history as readable text.
+
+        Args:
+            history: List of message dicts
+
+        Returns:
+            Formatted string
+        """
+        lines = []
+        for msg in history:
+            role = msg.get("role", "unknown")
+            if role == "system":
+                continue  # Skip system message
+            content = msg.get("content", "")
+            tool_calls = msg.get("tool_calls", [])
+
+            if role == "assistant" and tool_calls:
+                for tc in tool_calls:
+                    func = tc.get("function", tc)
+                    name = func.get("name", "unknown") if isinstance(func, dict) else getattr(func, "name", "unknown")
+                    args = func.get("arguments", "{}") if isinstance(func, dict) else getattr(func, "arguments", "{}")
+                    lines.append(f"[Assistant] Called {name}({args})")
+                if content:
+                    lines.append(f"[Assistant] {content}")
+            elif role == "tool":
+                lines.append(f"[Tool Result] {content}")
+            elif content:
+                lines.append(f"[{role.title()}] {content}")
+        return "\n".join(lines)
+
+    def branch(self, module_class, /, merge="end_result", **kwargs):
+        """Manually spawn a branch from within on_step or other callbacks.
+
+        Args:
+            module_class: The Module subclass to execute (positional-only)
+            merge: Merge strategy ('end_result', 'summarize', 'merge')
+            **kwargs: Arguments passed to the branch module's initial_input
+
+        Returns:
+            The branch's final_output instance (or None)
+        """
+        result, merged_content = self._execute_branch(module_class, merge, **kwargs)
+
+        # Inject merge result into parent history
+        self.history.append({
+            "role": "user",
+            "content": f"[Branch Result]\n{merged_content}"
+        })
+
+        return result
 
     def _generate_finish_tool(self) -> dict:
         """Generate the __finish__ tool from final_output schema.
@@ -853,7 +1252,7 @@ class Module:
             Validated output model, or None if no final_output defined
 
         Raises:
-            ParseError: If forced output fails validation after all retries
+            AcornError: If the model did not call __finish__ within max_steps
         """
         # If no final_output, just return None
         if self.final_output is None:
@@ -897,12 +1296,16 @@ class Module:
                             error=e
                         )
 
-        except Exception as e:
-            # tool_choice not supported or failed - fall back to XML
-            return self._force_termination_xml()
+        except Exception:
+            # tool_choice not supported or failed - fall through to error
+            pass
 
-        # No tool call or wrong tool - fall back to XML
-        return self._force_termination_xml()
+        # Force termination failed — raise a clear error
+        raise AcornError(
+            f"Module reached max_steps ({self.max_steps}) without calling __finish__. "
+            f"The model did not produce a final output in the allowed number of steps. "
+            f"Consider increasing max_steps or simplifying the task."
+        )
 
     def _retry_forced_finish(
         self,
@@ -985,150 +1388,3 @@ class Module:
                 error=e
             )
 
-    def _force_termination_xml(self) -> BaseModel:
-        """Force termination using XML fallback (when tool_choice not supported).
-
-        Appends XML instruction to history and parses XML response.
-
-        Returns:
-            Validated output model
-
-        Raises:
-            ParseError: If XML parsing or validation fails
-        """
-        from acorn.serialization import xml_to_pydantic
-
-        # Build XML template with field descriptions as attributes
-        xml_template_lines = [f"<{self.xml_output_root}>"]
-
-        for field_name, field_info in self.final_output.model_fields.items():
-            desc_attr = ""
-            if field_info.description:
-                # Escape quotes in description
-                escaped_desc = field_info.description.replace('"', '&quot;')
-                desc_attr = f' description="{escaped_desc}"'
-
-            xml_template_lines.append(f"    <{field_name}{desc_attr}></{field_name}>")
-
-        xml_template_lines.append(f"</{self.xml_output_root}>")
-        xml_template = "\n".join(xml_template_lines)
-
-        # Append instruction to history
-        instruction = (
-            f"You must provide your final answer now. "
-            f"Respond with your answer in the following XML structure:\n\n"
-            f"{xml_template}\n\n"
-            f"Fill in the values. Do not repeat the descriptions."
-        )
-
-        forced_history = self.history + [
-            {"role": "user", "content": instruction}
-        ]
-
-        # Call LLM without tools (text-only response)
-        response = call_llm(
-            messages=forced_history,
-            model=self.model,
-            tools=None,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            metadata=self.metadata,
-            cache=self.cache,
-            model_fallbacks=self.model_fallbacks or None,
-        )
-
-        # Parse XML from response content
-        content = response.get("content", "")
-
-        if not content:
-            raise ParseError(
-                "Empty response in XML forced termination",
-                raw_output=content
-            )
-
-        try:
-            # Parse XML to Pydantic model
-            result = xml_to_pydantic(content, self.final_output)
-            return result
-        except Exception as e:
-            # Try retry mechanism
-            return self._retry_xml_forced_finish(
-                forced_history,
-                content,
-                attempt=0,
-                error=e
-            )
-
-    def _retry_xml_forced_finish(
-        self,
-        history: list[dict],
-        failed_output: str,
-        attempt: int,
-        error: Exception
-    ) -> BaseModel:
-        """Retry XML forced finish after parsing/validation failure.
-
-        Args:
-            history: Message history with XML instruction
-            failed_output: The failed XML output
-            attempt: Current retry attempt number
-            error: The parsing/validation error
-
-        Returns:
-            Validated output model
-
-        Raises:
-            ParseError: If validation fails after all retries
-        """
-        from acorn.serialization import xml_to_pydantic
-
-        if attempt >= self.max_parse_retries:
-            # Out of retries
-            raise ParseError(
-                f"Failed to parse/validate XML forced output after {attempt} retries: {error}",
-                raw_output=failed_output
-            )
-
-        # Add error message and retry
-        error_msg = {
-            "role": "user",
-            "content": f"Error: Output parsing/validation failed: {error}\n\nPlease provide the XML output again with valid values."
-        }
-
-        retry_history = history + [
-            {"role": "assistant", "content": failed_output},
-            error_msg
-        ]
-
-        # Retry LLM call
-        response = call_llm(
-            messages=retry_history,
-            model=self.model,
-            tools=None,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            metadata=self.metadata,
-            cache=self.cache,
-            model_fallbacks=self.model_fallbacks or None,
-        )
-
-        content = response.get("content", "")
-
-        if not content:
-            raise ParseError(
-                f"Empty response in XML forced termination retry {attempt + 1}",
-                raw_output=content
-            )
-
-        try:
-            # Parse XML to Pydantic model
-            result = xml_to_pydantic(content, self.final_output)
-            return result
-        except Exception as e:
-            # Recursive retry
-            return self._retry_xml_forced_finish(
-                retry_history,
-                content,
-                attempt + 1,
-                error=e
-            )

@@ -37,6 +37,7 @@ def test_parse_retry_success_on_second_attempt():
         count: int
 
     class CountModule(Module):
+        model = "test-model"
         final_output = Output
         max_parse_retries = 2
 
@@ -67,6 +68,7 @@ def test_parse_retry_failure_after_max_retries():
         count: int
 
     class CountModule(Module):
+        model = "test-model"
         final_output = Output
         max_parse_retries = 2
 
@@ -90,6 +92,7 @@ def test_parse_retry_includes_error_message():
         value: int
 
     class TestModule(Module):
+        model = "test-model"
         final_output = Output
         max_parse_retries = 1
 
@@ -122,6 +125,7 @@ def test_parse_retry_with_zero_retries():
         value: int
 
     class NoRetryModule(Module):
+        model = "test-model"
         final_output = Output
         max_parse_retries = 0
 
@@ -144,6 +148,7 @@ def test_parse_retry_success_on_first_attempt():
         value: int
 
     class SuccessModule(Module):
+        model = "test-model"
         final_output = Output
         max_parse_retries = 2
 
@@ -169,6 +174,7 @@ def test_system_prompt_from_path(tmp_path):
         result: str
 
     class FilePromptModule(Module):
+        model = "test-model"
         system_prompt = prompt_file
         final_output = Output
 

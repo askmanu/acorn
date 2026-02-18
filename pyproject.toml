@@ -49,6 +49,27 @@ target-version = "py310"
 select = ["E", "F", "I", "N", "W", "UP"]
 ignore = []
 
+[tool.hatch.build.targets.wheel]
+exclude = [
+    "docs/",
+    "examples/",
+    "specs/",
+    "tests/",
+]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "docs/",
+    "examples/",
+    "specs/",
+    "tests/",
+    ".github/",
+    ".pytest_cache/",
+    "__pycache__/",
+    "*.pyc",
+    ".coverage",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"

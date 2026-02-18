@@ -34,6 +34,7 @@ def create_tool_call(name: str, arguments: dict, call_id: str = "call_123"):
 def test_single_turn_requires_final_output():
     """Single-turn mode must have final_output."""
     class NoOutputModule(Module):
+        model = "test-model"
         max_steps = None  # Single-turn
         final_output = None
 
@@ -49,6 +50,7 @@ def test_multi_turn_without_final_output_reaches_max_steps():
         return f"Executed: {msg}"
 
     class ToolOnlyModule(Module):
+        model = "test-model"
         max_steps = 2
         final_output = None
         tools = [action]
@@ -91,6 +93,7 @@ def test_multi_turn_without_final_output_early_finish():
         return f"Executed: {msg}"
 
     class ToolOnlyModule(Module):
+        model = "test-model"
         max_steps = 5
         final_output = None
         tools = [action]
@@ -124,6 +127,7 @@ def test_multi_turn_no_final_output_on_step_callback():
         return f"Logged: {data}"
 
     class CallbackModule(Module):
+        model = "test-model"
         max_steps = 2
         final_output = None
         tools = [log_data]
@@ -152,6 +156,7 @@ def test_multi_turn_no_final_output_history_tracking():
         return "Some info"
 
     class HistoryModule(Module):
+        model = "test-model"
         max_steps = 1
         final_output = None
         tools = [get_info]
@@ -180,6 +185,7 @@ def test_multi_turn_no_final_output_step_finish():
         return True
 
     class EarlyExitModule(Module):
+        model = "test-model"
         max_steps = 5
         final_output = None
         tools = [check_condition]
@@ -212,6 +218,7 @@ def test_multi_turn_allows_final_output_still_works():
         result: str
 
     class NormalModule(Module):
+        model = "test-model"
         max_steps = 2
         final_output = Output
         tools = [process]
