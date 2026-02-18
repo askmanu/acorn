@@ -80,10 +80,13 @@ def run_module(demo_key: str, model_name: str, api_key: str, env_vars: dict | No
         _model_config = {"id": model_name, "api_key": api_key.strip()}
 
     # Patch branch classes: user-selected model + step logging
-    _patched_branches = [
-        type(bc.__name__, (bc,), {"model": _model_config, "on_step": _make_branch_on_step(bc)})
-        for bc in (module_class.branches or [])
-    ]
+    _patched_branches = []
+    for bc in getattr(module_class, "branches", None) or []:
+        patched = type(bc.__name__, (bc,), {
+            "model": _model_config,
+            "on_step": _make_branch_on_step(bc),
+        })
+        _patched_branches.append(patched)
 
     class CustomModule(module_class):
         model = _model_config
