@@ -11,7 +11,7 @@ from demo.pages import build_home_page, build_demo_page
 
 
 def build_app() -> gr.Blocks:
-    interface = gr.Blocks(title="Acorn Demos")
+    interface = gr.Blocks(title="Acorn Demos", theme=gr.themes.Soft())
 
     with interface:
         # --- Main Page (Root /) ---
@@ -28,4 +28,4 @@ def build_app() -> gr.Blocks:
 app = build_app()   # module-level for `gradio examples/app.py` hot-reload
 
 if __name__ == "__main__":
-    app.launch(show_error=True, theme=gr.themes.Soft())
+    app.launch(show_error=True)

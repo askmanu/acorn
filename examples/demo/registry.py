@@ -94,8 +94,8 @@ MODEL_PRESETS = {
         "api_base": "https://api.us-west-2.modal.direct/v1",
     },
     "Claude Haiku 4.5": "anthropic/claude-haiku-4-5-20251001",
-    "Claude Sonnet 4.5": "anthropic/claude-sonnet-4-5-20250929",
+    "Claude Sonnet 4.6": "anthropic/claude-sonnet-4-6",
     "Claude Opus 4.6": "anthropic/claude-opus-4-6",
-    "GPT-4": "openai/gpt-4",
-    "GPT-4 Turbo": "openai/gpt-4-turbo-preview",
+    "GPT-5.2": "openai/gpt-5.2-2025-12-11",
+    "GPT-5.2 Codex": "openai/gpt-5.2-codex",
 }
