@@ -97,58 +97,56 @@ def build_demo_page(demo_key: str):
 
     gr.Markdown("[← Back to Home](/)")
 
-    # Radio toggle (always visible)
-    config_mode = gr.Radio(
-        choices=["Default (rate-limited)", "Custom config"],
-        value="Default (rate-limited)",
-        label="Configuration Mode",
-        show_label=False,
-    )
-
-    # Default info group (shown by default)
-    with gr.Group(visible=True) as default_group:
-        gr.Markdown(
-            "Uses our shared hosted models and keys, **rate-limited**.\n\n"
-            "**Note**: Switch to Custom to use your own API key and model for testing."
-        )
-        gr.Dropdown(
-            choices=["GLM5 (modal)"],
-            value="GLM5 (modal)",
-            label="Model Provider",
-            interactive=False,
+    with gr.Group():
+        # Radio toggle
+        config_mode = gr.Radio(
+            choices=["Our config (rate-limited)", "Custom config"],
+            value="Our config (rate-limited)",
+            label="Configuration Mode",
+            show_label=False,
         )
 
-    # Custom config group (hidden by default)
-    with gr.Group(visible=False) as custom_group:
-        gr.Markdown(
-            "### Configuration\n\n"
-            "Use your own API keys and github token"
-        )
-        with gr.Row():
-            model_dropdown = gr.Dropdown(
-                choices=list(MODEL_PRESETS.keys()),
+        # Default info column (shown by default)
+        with gr.Column(visible=True) as default_group:
+            gr.Markdown(
+                "Uses our shared hosted models and keys, **rate-limited**.\n\n"
+                "**Note**: Switch to Custom to use your own API key and model for testing."
+            )
+            gr.Dropdown(
+                choices=["GLM5 (modal)"],
                 value="GLM5 (modal)",
                 label="Model Provider",
-                scale=1,
+                interactive=False,
             )
-            api_key_input = gr.Textbox(
-                label="API Key (required)",
-                type="password",
-                placeholder="Enter your API key",
-                scale=2,
-            )
-        env_components: dict[str, gr.Component] = {}
-        for env_key, env_meta in env_inputs.items():
+
+        # Custom config column (hidden by default)
+        with gr.Column(visible=False) as custom_group:
+            gr.Markdown("Use your own API keys and github token")
             with gr.Row():
-                env_components[env_key] = gr.Textbox(
-                    label=env_meta["label"],
-                    type="password",
-                    placeholder=env_meta.get("placeholder", ""),
-                    info=env_meta.get("description", ""),
+                model_dropdown = gr.Dropdown(
+                    choices=list(MODEL_PRESETS.keys()),
+                    value="GLM5 (modal)",
+                    label="Model Provider",
+                    scale=1,
                 )
+                api_key_input = gr.Textbox(
+                    label="API Key (required)",
+                    type="password",
+                    placeholder="Enter your API key",
+                    scale=2,
+                )
+            env_components: dict[str, gr.Component] = {}
+            for env_key, env_meta in env_inputs.items():
+                with gr.Row():
+                    env_components[env_key] = gr.Textbox(
+                        label=env_meta["label"],
+                        type="password",
+                        placeholder=env_meta.get("placeholder", ""),
+                        info=env_meta.get("description", ""),
+                    )
 
     def _toggle_mode(mode):
-        if mode == "Default (rate-limited)":
+        if mode == "Our config (rate-limited)":
             return gr.update(visible=True), gr.update(visible=False)
         return gr.update(visible=False), gr.update(visible=True)
 
@@ -211,7 +209,7 @@ def build_demo_page(demo_key: str):
             gr.update(value=""),
         ]
 
-        if config_mode_val == "Default (rate-limited)":
+        if config_mode_val == "Our config (rate-limited)":
             api_key = os.environ.get("DEMO_API_KEY", "")
             model_id = MODEL_PRESETS["GLM5 (modal)"]
             env_vars = {k: os.environ.get(k, "") for k in env_components}
