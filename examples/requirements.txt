@@ -1,0 +1,3 @@
+requests
+gradio>=5.0
+acorn
