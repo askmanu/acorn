@@ -39,7 +39,7 @@ pip install acorn
 Set your API key:
 
 ```bash
-# For Anthropic Claude (default)
+# For Anthropic Claude
 export ANTHROPIC_API_KEY="your-key-here"
 
 # Or for OpenAI
@@ -67,6 +67,7 @@ class Summarizer(Module):
 
     initial_input = Input
     final_output = Output
+    model = "anthropic/claude-sonnet-4-5-20250514"
 
 # Use it
 summarizer = Summarizer()
@@ -99,6 +100,7 @@ class ResearchAgent(Module):
     initial_input = Input
     max_steps = 5  # Enable agentic loop
     final_output = Output
+    model = "anthropic/claude-sonnet-4-5-20250514"
 
     @tool
     def search(self, query: str) -> list:
@@ -136,7 +138,7 @@ result = agent(topic="Large Language Models", depth="shallow")
 
 ### Module
 Base class for LLM agents. Configure with:
-- `model` - LLM to use (default: Claude Sonnet 4.5)
+- `model` - LLM to use (required - no default)
 - `temperature` - Sampling temperature
 - `max_tokens` - Maximum tokens to generate
 - `max_steps` - Max agentic loop iterations (None = single-turn)
@@ -188,8 +190,9 @@ def on_step(self, step):
 ## 🎯 Examples
 
 See `examples/` directory:
-- [`single_turn_summarizer.py`](examples/single_turn_summarizer.py) - Basic single-turn usage
-- [`research_assistant.py`](examples/research_assistant.py) - Full agentic loop with tools
+- [`simple_qa.py`](examples/simple_qa.py) - Basic single-turn question answering
+- [`app.py`](examples/app.py) - Web application example
+- [`bus_factor.py`](examples/bus_factor.py) - Repository analysis tool
 
 ---
 
@@ -206,7 +209,7 @@ pytest --cov=acorn
 pytest tests/test_agentic_loop.py -v
 ```
 
-**Current status:** 128 tests passing, 90% coverage
+**Current status:** 201 tests passing, 85% coverage
 
 ---
 
