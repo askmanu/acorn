@@ -1,4 +1,6 @@
-# acorn 🌰
+
+<img width="851" height="190" alt="github" src="https://github.com/user-attachments/assets/3f06caa7-b670-4cfb-8a57-0278f7f946a0" />
+
 
 **LLM agent framework with structured I/O**
 
