@@ -1,389 +1,520 @@
 # Branching
 
-Branching allows a module to spawn sub-agents that run to completion and return results to the main "trunk" of execution. Branches **extend** the parent module rather than replacing it.
+Branching allows a module to spawn sub-agents that run independently and return results to the parent. Branches are specialized modules that inherit context from their parent and add focused capabilities for specific tasks.
 
-## Branch Inheritance Model
+## When to use branching
 
-When a branch is spawned, it inherits from its parent and adds its own capabilities:
+Use branching when you need to:
 
-| Aspect | Behavior |
-|--------|----------|
-| **System prompt** | Parent's prompt + branch's docstring (appended) |
-| **Tools** | Parent's tools + branch's tools + `__finish__` |
-| **History** | Full parent history inherited at branch point |
-| **Trigger** | Tool call with branch ID only (no arguments) |
-| **Output** | Structured `final_output` (branch must define Pydantic schema) |
+- **Delegate specialized analysis**: Spawn an expert agent for fact-checking, deep research, or verification
+- **Parallel processing**: Analyze multiple items concurrently (map-reduce pattern)
+- **Focus context**: Create a sub-agent with a narrower scope without polluting the parent's prompt
+- **Isolate complex tasks**: Break down multi-step operations into manageable sub-workflows
 
-```
-Main Module (trunk)
-    │
-    ├── Step 1: search_web()
-    │
-    ├── Step 2: analyze_data()
-    │
-    ├── Step 3: fact_check() ──────────┐
-    │                                  │
-    │   ┌──────────────────────────────▼──────────────────────────────┐
-    │   │  FactCheckBranch                                            │
-    │   │    System: Parent prompt + "Verify claims discussed..."     │
-    │   │    Tools: [search, calculate, deep_search, verify, __finish__] │
-    │   │    History: Full parent history                             │
-    │   │                                                             │
-    │   │    ├── Step 1: deep_search()                                │
-    │   │    ├── Step 2: verify_source()                              │
-    │   │    └── Step 3: __finish__(is_true=True, evidence=[...])     │
-    │   └──────────────────────────────┬──────────────────────────────┘
-    │                                  │
-    ├── Step 4: (branch result injected as tool result) ◄─────────────┘
-    │
-    └── Step 5: __finish__(answer="...")
-```
-
-The branch runs synchronously - the main module waits for it to complete before continuing.
-
----
-
-## Defining a Branch Module
-
-A branch is a module that **extends** its parent. It uses its docstring as additional system prompt instructions:
+## Quick example
 
 ```python
-from acorn import module, tool
+from acorn import Module
 from pydantic import BaseModel, Field
 
-@tool
-def deep_search(query: str) -> list[str]:
-    """Perform deep web search with multiple sources."""
-    return [...]
+class VerificationOutput(BaseModel):
+    verified: bool
+    explanation: str
 
-@tool
-def verify_source(url: str) -> dict:
-    """Verify the credibility of a source."""
-    return {"credible": True, "score": 0.9}
+class FactCheckBranch(Module):
+    """Verify factual claims using available tools."""
+    model = "anthropic/claude-sonnet-4-6"
+    final_output = VerificationOutput
+    max_steps = 5
 
+class ResearchAgent(Module):
+    """Answer questions with fact-checking support."""
+    model = "anthropic/claude-haiku-4-5"
+    branches = [FactCheckBranch]  # Register the branch
+    max_steps = 10
+    # Agent can now call branch(name="FactCheckBranch", ...)
+```
 
-class FactCheckOutput(BaseModel):
-    is_true: bool = Field(description="Whether the claim is verified")
+## Defining a branch module
+
+A branch is a standard `Module` subclass with two requirements:
+
+1. Define `final_output` (required for returning structured results)
+2. Optionally define `initial_input` to accept explicit parameters
+
+```python
+from acorn import Module, tool
+from pydantic import BaseModel, Field
+
+class ClaimInput(BaseModel):
+    claim: str = Field(description="The claim to verify")
+
+class VerificationOutput(BaseModel):
+    verified: bool = Field(description="Whether the claim is verified")
     evidence: list[str] = Field(description="Supporting evidence")
     confidence: float = Field(description="Confidence score 0-1")
 
+@tool
+def search_academic(query: str) -> list[str]:
+    """Search academic sources."""
+    return ["source1", "source2"]
 
-class FactCheckBranch(module):
-    """
-    Verify the claims discussed in the conversation.
-    Search for evidence and assess truthfulness.
-    Use multiple sources to corroborate information.
-    """
-    # Docstring = additional prompt appended to parent's system_prompt
-
-    tools = [deep_search, verify_source]  # Added to parent's tools
-    final_output = FactCheckOutput         # Required - defines __finish__ schema
-
-    # No initial_input - context comes from inherited history
-    # No model - inherits from parent (can override if needed)
-
-    max_steps = 8  # Can override parent's settings
-    temperature = 0.2  # Lower temperature for verification
+class FactCheckBranch(Module):
+    """Verify factual claims using available tools."""
+    
+    model = "anthropic/claude-sonnet-4-6"
+    temperature = 0.2
+    max_steps = 5
+    
+    initial_input = ClaimInput  # Accept explicit parameters
+    final_output = VerificationOutput  # Required - defines return type
+    
+    tools = [search_academic]  # Branch-specific tools
 ```
 
-### Key Points
+**Key points:**
 
-- **Docstring as prompt**: The branch's docstring is appended to the parent's system prompt
-- **No `initial_input`**: Branches don't take arguments - they inherit full conversation history
-- **`final_output` required**: Must define what `__finish__` returns
-- **Tools are additive**: Branch tools are added to parent's tools
-- **Settings can override**: Model, temperature, max_steps, etc. can be customized
+- `initial_input`: Defines what parameters the branch accepts when called
+- `final_output`: Required - must be a Pydantic model
+- `tools`: Branch-specific tools that augment parent's tools
+- All other Module settings (model, temperature, max_steps, etc.) can be customized
 
----
+## Registering branches
 
-## Registering Branches
-
-In the parent module, register branches in the `branches` dict:
+Register branches in the parent module using the `branches` class attribute:
 
 ```python
-class ResearchAgent(module):
-    """You are a research assistant. Answer questions thoroughly."""
-
-    model = "anthropic/claude-sonnet-4-5-20250514"
-    tools = [search_web, calculate]
-
-    branches = {
-        "fact_check": FactCheckBranch,
-        "deep_analysis": AnalysisBranch,
-    }
-
-    final_output = ResearchOutput
+class ResearchAgent(Module):
+    """Main research agent with fact-checking capability."""
+    
+    model = "anthropic/claude-haiku-4-5"
+    max_steps = 15
+    
+    branches = [FactCheckBranch]  # List of branch classes
 ```
 
-### Auto-Generated Branch Tools
+**Important**: Use a list, not a dict. Each branch class name becomes the branch identifier.
 
-For each branch, acorn generates a simple tool with no parameters:
+## The branch() tool
 
-| Branch Key | Generated Tool |
-|------------|----------------|
-| `"fact_check": FactCheckBranch` | `fact_check() -> FactCheckOutput` |
+When you register branches, Acorn automatically generates a `branch()` tool that the parent agent can call. The tool has two modes:
 
-The model sees these as regular tools:
+### Discovery mode (no arguments)
 
-```
-Available tools:
-- search_web(query: str, max_results: int) -> list[dict]
-- calculate(expression: str) -> float
-- fact_check() -> {is_true: bool, evidence: list[str], confidence: float}
-- deep_analysis() -> {summary: str, key_findings: list[str]}
-- __finish__(...)
-```
-
-The tool description comes from the branch's docstring (first paragraph).
-
----
-
-## Branch Execution
-
-When the model calls a branch tool:
-
-1. **Branch initialized** with inherited context:
-   - System prompt = parent's prompt + branch's docstring
-   - Tools = parent's tools + branch's tools + `__finish__`
-   - History = copy of parent's full history
-
-2. **Branch runs** its own agentic loop until `__finish__` is called
-
-3. **Result returned** to parent as a tool result (serialized `final_output`)
-
-4. **Parent continues** with the branch result in its context
-
-### Example Flow
+Call `branch()` with no arguments to list available branches and their input schemas:
 
 ```python
-# Parent is running, model decides to fact-check a claim
-# Model calls: fact_check()
-
-# 1. FactCheckBranch starts with:
-#    System: "You are a research assistant..." + "Verify the claims discussed..."
-#    Tools: [search_web, calculate, deep_search, verify_source, __finish__]
-#    History: [all parent messages so far]
-
-# 2. Branch runs, making tool calls:
-#    - deep_search("python creation date 1991")
-#    - verify_source("https://python.org/history")
-#    - __finish__(is_true=True, evidence=["..."], confidence=0.95)
-
-# 3. Result returned to parent as tool result:
-#    {"is_true": true, "evidence": ["..."], "confidence": 0.95}
-
-# 4. Parent continues, seeing fact_check() returned verification data
+# Agent calls: branch()
+# Returns XML listing:
+# <available_branches>
+#   <branches>
+#     <name>FactCheckBranch</name>
+#     <description>Verify factual claims using available tools.</description>
+#     <input_schema>
+#       <name>claim</name>
+#       <required>true</required>
+#       <description>The claim to verify</description>
+#     </input_schema>
+#   </branches>
+# </available_branches>
 ```
 
----
+### Execution mode (with name + parameters)
 
-## Custom Branch Configuration
-
-### Override Model
-
-Use a different (often cheaper/faster) model for specific branches:
+Call `branch(name="ClassName", ...)` with the branch name and required parameters:
 
 ```python
-class SummaryBranch(module):
-    """Summarize the discussion concisely."""
-
-    model = "anthropic/claude-haiku"  # Faster model for simple task
-    final_output = SummaryOutput
-    max_steps = 3
+# Agent calls: branch(name="FactCheckBranch", claim="Python was created in 1991")
+# Spawns FactCheckBranch with inherited context
+# Returns structured result after branch completes
 ```
 
-### Custom Tool Description
+**Parameters:**
 
-Override the auto-generated description:
+- `name` (required): Branch class name to spawn
+- `merge` (optional): Merge strategy - `"end_result"` (default) or `"summarize"`
+- Additional parameters: Passed to the branch's `initial_input`
+
+## Branch inheritance model
+
+When a branch is spawned, it inherits from its parent:
+
+| Aspect | Inheritance Behavior |
+|--------|---------------------|
+| **System prompt** | Branch uses its own `system_prompt` (not inherited) |
+| **Tools** | Parent tools + branch tools + `call_parent_tool()` + `__finish__` |
+| **History** | Full parent conversation history (copied, not referenced) |
+| **Context** | Branch sees everything the parent has discussed |
+| **Output** | Must call `__finish__()` with `final_output` schema |
+
+```
+Parent Module
+  │
+  ├─ System: "You are a research assistant..."
+  ├─ Tools: [search_web, calculate]
+  ├─ History: [user: "Is Python from 1991?", ...]
+  │
+  └─ Spawns branch(name="FactCheckBranch", claim="Python 1991")
+      │
+      ┌─────────────────────────────────────────────────────┐
+      │ FactCheckBranch                                     │
+      │                                                     │
+      │ System: "Verify factual claims..."                 │
+      │ Tools: [search_web, calculate, search_academic,    │
+      │         call_parent_tool, __finish__]              │
+      │ History: [full parent history] + branch input      │
+      │                                                     │
+      │ ├─ Step 1: search_academic("Python creation")      │
+      │ ├─ Step 2: call_parent_tool(name="search_web", ...) │
+      │ └─ Step 3: __finish__(verified=True, ...)          │
+      └─────────────────────────────────────────────────────┘
+           │
+           │ Returns: <branch_result>
+           │            <verified>true</verified>
+           │            <evidence>...</evidence>
+           │          </branch_result>
+           ▼
+      Parent continues with branch result
+```
+
+## Accessing parent tools: call_parent_tool()
+
+Branches automatically receive a `call_parent_tool()` tool that provides access to the parent's tools.
+
+**Discovery mode (no arguments):**
 
 ```python
-branches = {
-    "fact_check": {
-        "module": FactCheckBranch,
-        "description": "Verify factual claims with evidence from multiple sources",
-    },
-}
+# Branch calls: call_parent_tool()
+# Returns JSON listing parent tools:
+# [
+#   {"name": "search_web", "schema": {...}},
+#   {"name": "calculate", "schema": {...}}
+# ]
 ```
 
----
-
-## Manual Branching
-
-Spawn branches programmatically in `on_step` for cases where you need custom logic:
+**Execution mode (with name + arguments):**
 
 ```python
-def on_step(self, step):
-    # Check if we need to branch based on tool results
-    for result in step.tool_results:
-        if result.name == "analyze_data" and result.output.get("needs_verification"):
-            # Spawn verification branch manually
-            verification = self.branch(FactCheckBranch)
-
-            # Inject result into history for next iteration
-            self.history.append({
-                "role": "user",
-                "content": f"Verification result: {verification.model_dump_json()}"
-            })
-
-    return step
+# Branch calls: call_parent_tool(name="search_web", query="Python history")
+# Executes parent's search_web tool
+# Returns the tool's result
 ```
 
-### When to Use Manual vs Declarative
+**Note**: `call_parent_tool()` filters out `__finish__` and `branch` from the parent's tool list - branches only access regular parent tools.
 
-| Use Case | Approach |
+## Merge strategies
+
+Merge strategies control how branch results are returned to the parent:
+
+### end_result (default)
+
+Returns only the branch's final output as XML:
+
+```python
+# Branch finishes with: __finish__(verified=True, explanation="Confirmed")
+# Parent receives:
+# <branch_result>
+#   <verified>true</verified>
+#   <explanation>Confirmed</explanation>
+# </branch_result>
+```
+
+Best for:
+- Simple delegation where you only need the final answer
+- Fact-checking and verification tasks
+- When branch's internal steps don't matter to the parent
+
+### summarize
+
+Uses an LLM to summarize the branch's execution history and final result:
+
+```python
+# Branch performs multiple steps and finishes
+# Parent receives:
+# Branch summary:
+# The branch searched academic sources, cross-referenced with Wikipedia,
+# and verified the claim was accurate.
+#
+# Final result:
+# {"verified": true, "explanation": "..."}
+```
+
+Best for:
+- Complex branch workflows where context matters
+- Debugging and transparency
+- When the parent needs to understand how the conclusion was reached
+
+**Usage:**
+
+```python
+# In branch() tool call:
+branch(name="FactCheckBranch", merge="summarize", claim="...")
+```
+
+**Auto-fallback**: If a branch has no `final_output` defined and `merge="end_result"`, Acorn automatically falls back to `"summarize"` to provide useful context.
+
+## Manual branching: self.branch()
+
+Spawn branches programmatically in callbacks using `self.branch()`:
+
+```python
+class ResearchAgent(Module):
+    model = "anthropic/claude-haiku-4-5"
+    max_steps = 15
+    
+    def on_step(self, step):
+        # Check if verification is needed based on tool results
+        for result in step.tool_results:
+            if result.name == "search_web" and "unverified" in str(result.output):
+                # Manually spawn verification branch
+                verification = self.branch(
+                    FactCheckBranch,
+                    merge="end_result",
+                    claim=result.output
+                )
+                
+                # Result is automatically injected into history
+                # Continue processing with verification context
+        
+        return step
+```
+
+**Method signature:**
+
+```python
+def branch(
+    self,
+    module_class,  # Branch Module class (positional-only)
+    /,
+    merge="end_result",  # Merge strategy
+    **kwargs  # Arguments for branch's initial_input
+) -> BaseModel | None
+```
+
+**Returns**: The branch's `final_output` instance (or `None` if no `final_output` defined)
+
+**Behavior**: The branch result is automatically injected into the parent's history as a user message with `[Branch Result]` prefix.
+
+### When to use manual vs declarative
+
+| Scenario | Approach |
 |----------|----------|
-| Model decides when to branch | Declarative (`branches = {}`) |
-| Conditional branching based on results | Manual (`self.branch()` in `on_step`) |
-| Branch with modified history | Manual |
-| Simple "spawn specialist" pattern | Declarative |
+| Let the agent decide when to branch | Declarative (`branches = [...]`) |
+| Branch based on tool results or logic | Manual (`self.branch()` in `on_step`) |
+| Conditional branching | Manual |
+| Parallel processing (map-reduce) | Declarative |
+| Custom history manipulation before branching | Manual |
 
----
+## Branches without initial_input
 
-## Nested Branches
-
-Branches can define their own branches (nested branching):
+Branches can omit `initial_input` to rely solely on inherited history:
 
 ```python
-class DeepResearchBranch(module):
-    """Perform deep research on a topic."""
-
-    branches = {
-        "verify_fact": FactCheckBranch,
-    }
-    # DeepResearchBranch can call verify_fact()
-    # verify_fact will inherit from DeepResearchBranch (which inherited from root)
+class SummaryBranch(Module):
+    """Summarize the discussion so far."""
+    model = "anthropic/claude-haiku-4-5"
+    final_output = SummaryOutput
+    # No initial_input - uses inherited history for context
 ```
 
-Nested branches inherit through the full chain:
-- `verify_fact` gets DeepResearchBranch's accumulated system prompt + its own docstring
-- Tools accumulate through all levels
+This is useful for:
+- Summarization tasks
+- Meta-analysis of the conversation
+- Decision-making based on accumulated context
 
-Be cautious with nesting depth - each level adds latency and cost.
+## Nested branching
 
----
+Branches can define their own branches:
 
-## Branch Errors
+```python
+class DeepAnalysisBranch(Module):
+    """Perform deep analysis with fact-checking."""
+    model = "anthropic/claude-sonnet-4-6"
+    branches = [FactCheckBranch]  # Nested branch
+    final_output = AnalysisOutput
+```
 
-If a branch fails (forced output fails to parse after retries, etc.):
+**Inheritance chain**: Nested branches inherit from their immediate parent branch, which inherited from the root parent. Tools and context accumulate through all levels.
 
-**Declarative branch**: Error returned to parent model as tool result. Model can acknowledge and continue.
+**Caution**: Each nesting level adds latency and cost. Keep nesting depth minimal (1-2 levels recommended).
+
+## Branch errors
+
+If a branch fails during execution:
+
+**Declarative branching** (`branches = [...]`):
+- Error returned to parent as tool result
+- Agent sees error message and can continue or retry
 
 ```
-fact_check() returned error: ParseError - could not validate output after 2 retries
+branch() returned error: Branch execution failed: API timeout
 ```
 
-**Manual branch**: Exception raised. Handle in `on_step`:
+**Manual branching** (`self.branch()`):
+- Exception raised (BranchError)
+- Handle in your callback:
 
 ```python
 def on_step(self, step):
     try:
-        result = self.branch(RiskyBranch)
+        result = self.branch(RiskyBranch, data="test")
     except BranchError as e:
-        # Handle failure - inject error into context
+        # Log error, add to history, or handle gracefully
         self.history.append({
             "role": "user",
-            "content": f"Verification failed: {e}"
+            "content": f"Branch failed: {e}"
         })
     return step
 ```
 
----
-
-## Complete Example
+## Complete example: Map-reduce pattern
 
 ```python
-from acorn import module, tool
+from acorn import Module, tool
 from pydantic import BaseModel, Field
+import requests
 
-# --- Tools ---
+# --- Branch: Analyze one package ---
+
+class PackageInput(BaseModel):
+    package_name: str
+    ecosystem: str  # "pip" or "npm"
+
+class PackageProfile(BaseModel):
+    name: str
+    purpose: str
+    categories: list[str]
 
 @tool
-def search_web(query: str) -> list[str]:
-    """Search the web for information."""
-    return ["result1", "result2"]
+def fetch_package_info(package_name: str, ecosystem: str) -> dict:
+    """Fetch package info from PyPI or npm registry."""
+    if ecosystem == "pip":
+        url = f"https://pypi.org/pypi/{package_name}/json"
+    else:
+        url = f"https://registry.npmjs.org/{package_name}"
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    return response.json()
 
-@tool
-def deep_search(query: str) -> list[str]:
-    """Deep search with academic sources."""
-    return ["academic result 1", "academic result 2"]
+class PackageAnalyzerBranch(Module):
+    """Analyze a single package."""
+    model = "anthropic/claude-sonnet-4-6"
+    initial_input = PackageInput
+    final_output = PackageProfile
+    tools = [fetch_package_info]
+    max_steps = 5
 
-@tool
-def verify_source(url: str) -> dict:
-    """Check source credibility."""
-    return {"credible": True}
+# --- Parent: Orchestrate analysis of all packages ---
 
-# --- Branch Module ---
+class DependencyFileInput(BaseModel):
+    file_content: str
 
-class VerificationOutput(BaseModel):
-    is_true: bool
-    evidence: list[str]
-    confidence: float
+class PruningPlan(BaseModel):
+    redundancy_groups: list[dict]
+    packages_to_remove: list[str]
 
-class FactCheckBranch(module):
-    """
-    Verify the claims discussed in the conversation.
-    Search for evidence and assess truthfulness.
-    """
-
-    tools = [deep_search, verify_source]
-    final_output = VerificationOutput
-    max_steps = 8
-    temperature = 0.2
-
-# --- Main Module ---
-
-class ResearchOutput(BaseModel):
-    answer: str
-    sources: list[str]
-    verified: bool
-
-class ResearchAgent(module):
-    """
-    You are a research assistant. Answer questions thoroughly.
-    Use fact_check when you need to verify important claims.
-    """
-
-    model = "anthropic/claude-sonnet-4-5-20250514"
-    temperature = 0.7
-    max_steps = 20
-
-    tools = [search_web]
-
-    branches = {
-        "fact_check": FactCheckBranch,
-    }
-
-    final_output = ResearchOutput
-
-    def on_step(self, step):
-        # Log branch calls
-        for call in step.tool_calls:
-            if call.name in self.branches:
-                print(f"Branch spawned: {call.name}")
-        return step
-
+class DependencyScanner(Module):
+    """Scan dependencies for redundancies."""
+    
+    model = "anthropic/claude-haiku-4-5"
+    initial_input = DependencyFileInput
+    final_output = PruningPlan
+    branches = [PackageAnalyzerBranch]
+    max_steps = 60
+    
+    system_prompt = """Parse the dependency file and extract all package names.
+    For each package, spawn PackageAnalyzerBranch to analyze it (you can do multiple in parallel).
+    After all branches complete, group packages by overlapping purpose and recommend which to remove."""
 
 # --- Usage ---
 
-agent = ResearchAgent()
-result = agent(question="Was Python created in 1991?")
-
-# The model might:
-# 1. search_web("Python creation date")
-# 2. fact_check()  <- spawns branch with inherited context
-#    Branch runs with full history, verifies the claim
-#    Returns: {"is_true": True, "evidence": [...], "confidence": 0.95}
-# 3. __finish__(answer="Yes, Python was created in 1991", verified=True, ...)
+scanner = DependencyScanner()
+result = scanner(file_content=open("requirements.txt").read())
+print(f"Packages to remove: {result.packages_to_remove}")
 ```
 
----
+**Flow:**
+1. Agent parses file → finds 20 packages
+2. Agent calls `branch(name="PackageAnalyzerBranch", ...)` 20 times (in parallel)
+3. Each branch fetches package info and analyzes purpose
+4. Agent receives 20 PackageProfile results
+5. Agent groups by overlap and generates PruningPlan
 
-## Summary
+## Common patterns
 
-| Old Model | New Model |
-|-----------|-----------|
-| Branch has `initial_input` | No `initial_input` - inherits history |
-| Branch has independent system prompt | Branch docstring appended to parent's |
-| Branch has independent tools | Branch tools added to parent's |
-| Branch called with arguments | Branch called with no arguments |
-| Branch starts fresh | Branch inherits full context |
+### Fact-checking
+
+```python
+class FactCheckBranch(Module):
+    """Verify claims with multiple sources."""
+    model = "anthropic/claude-sonnet-4-6"
+    initial_input = ClaimInput
+    final_output = VerificationOutput
+    tools = [search_academic, verify_source]
+
+class Agent(Module):
+    branches = [FactCheckBranch]
+    # Agent calls: branch(name="FactCheckBranch", claim="...")
+```
+
+### Deep analysis
+
+```python
+class AnalysisBranch(Module):
+    """Perform in-depth analysis with specialized tools."""
+    model = "anthropic/claude-opus-4-5"
+    initial_input = AnalysisInput
+    final_output = AnalysisOutput
+    tools = [advanced_search, data_mining]
+    max_steps = 20
+
+class Agent(Module):
+    branches = [AnalysisBranch]
+    # Use for complex analysis without cluttering main agent
+```
+
+### Parallel processing (map-reduce)
+
+```python
+class ItemProcessorBranch(Module):
+    """Process one item."""
+    initial_input = ItemInput
+    final_output = ItemOutput
+
+class Orchestrator(Module):
+    branches = [ItemProcessorBranch]
+    # For each item: branch(name="ItemProcessorBranch", ...)
+    # Collect results and aggregate
+```
+
+### Summarization
+
+```python
+class SummaryBranch(Module):
+    """Summarize the conversation."""
+    model = "anthropic/claude-haiku-4-5"
+    final_output = SummaryOutput
+    max_steps = 3
+    # No initial_input - uses inherited history
+
+class Agent(Module):
+    branches = [SummaryBranch]
+    # Agent calls: branch(name="SummaryBranch")
+```
+
+## Best practices
+
+1. **Keep branch scope focused**: Each branch should have one clear purpose
+2. **Use appropriate models**: Branches can use different (often cheaper/faster) models
+3. **Define clear final_output**: Well-structured outputs make results easier to process
+4. **Avoid deep nesting**: Limit branch depth to 1-2 levels
+5. **Use merge strategies wisely**: `end_result` for simple tasks, `summarize` for complex workflows
+6. **Handle errors gracefully**: Catch `BranchError` in manual branching
+7. **Consider cost**: Each branch adds API calls - use `max_steps` to limit execution
+
+## Limitations
+
+- Branches run synchronously - parent waits for each branch to complete
+- No shared state between parallel branches
+- Branch history is copied, not shared - changes in one branch don't affect others
+- Nested branches inherit the full chain of context and tools - can become unwieldy
