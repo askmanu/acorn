@@ -1,6 +1,7 @@
 """Demo registry and model presets."""
 
 from examples.bus_factor import BusFactorCalculator
+from examples.dependency_scanner import DependencyScanner
 from examples.doc_coverage import DocCoverageAnalyzer
 from examples.hn_production_check import HNProductionChecker
 from examples.simple_qa import SimpleQA
@@ -83,6 +84,33 @@ DEMO_MODULES = {
                 "description": "Personal access token — higher rate limits (60 → 5,000 req/hr)",
                 "placeholder": "ghp_...",
             }
+        },
+    },
+    "dependency_scanner": {
+        "title": "Dependency Bloat Scanner",
+        "module_class": DependencyScanner,
+        "description": (
+            "Scans a requirements.txt or package.json for redundant and overlapping libraries. "
+            "Spawns one PackageAnalyzerBranch per dependency (map phase) to fetch package metadata "
+            "from PyPI or npm, then synthesises a PruningPlan that groups packages by purpose and "
+            "recommends which ones to remove (reduce phase). "
+            "Demonstrates the branching / map-reduce pattern in Acorn."
+        ),
+        "category": "Branching",
+        "source_file": "dependency_scanner.py",
+        "default_inputs": {
+            "file_content": (
+                "requests==2.31.0\n"
+                "httpx==0.27.0\n"
+                "urllib3==2.2.1\n"
+                "fastapi==0.111.0\n"
+                "flask==3.0.3\n"
+                "pytest==8.2.0\n"
+                "pytest-cov==5.0.0\n"
+                "coverage==7.5.1\n"
+                "pydantic==2.7.1\n"
+                "python-dotenv==1.0.1\n"
+            )
         },
     },
 }

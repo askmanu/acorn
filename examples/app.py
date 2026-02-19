@@ -8,10 +8,11 @@ import gradio as gr
 
 from demo.registry import DEMO_MODULES
 from demo.pages import build_home_page, build_demo_page
+from demo.theme import acorn_theme
 
 
 def build_app() -> gr.Blocks:
-    interface = gr.Blocks(title="Acorn Demos", theme=gr.themes.Soft())
+    interface = gr.Blocks(title="Acorn Demos", theme=acorn_theme)
 
     with interface:
         # --- Main Page (Root /) ---

@@ -42,13 +42,17 @@ def _format_value(val) -> str:
 def build_home_page():
     """Build the landing / index page listing all demos."""
 
-    gr.Markdown("# Acorn Framework — Interactive Demos")
-    gr.Markdown(
-        "Explore Acorn's capabilities through interactive examples. "
-        "Each demo runs a real Acorn Module with your inputs.\n\n"
-        "**What is Acorn?** LLM agent framework with structured I/O. "
-        "Built on Pydantic for schemas and LiteLLM for multi-provider access."
-    )
+    gr.Markdown("# acorn Framework — Interactive Demos")
+    gr.Markdown("""
+       Explore acorn's capabilities through interactive examples.
+       Each demo runs a real Acorn Module with your inputs.
+
+       ## About
+       LLM agent framework with structured I/O.
+       Built on Pydantic for schemas and LiteLLM for multi-provider access.
+    """)
+
+    gr.Markdown("Check the project on github: [askmanu/acorn](https://github.com/askmanu/acorn)")
 
     gr.Markdown("---")
 
@@ -97,56 +101,56 @@ def build_demo_page(demo_key: str):
 
     gr.Markdown("[← Back to Home](/)")
 
-    with gr.Group():
-        # Radio toggle
-        config_mode = gr.Radio(
-            choices=["Our config (rate-limited)", "Custom config"],
-            value="Our config (rate-limited)",
-            label="Configuration Mode",
-            show_label=False,
+    # Radio toggle
+    config_mode = gr.Radio(
+        choices=["Our config (rate-limited)", "Custom config"],
+        value="Our config (rate-limited)",
+        label="Configuration Mode",
+        show_label=False,
+    )
+
+    # Default info column (shown by default)
+    with gr.Column(visible=True) as default_group:
+        gr.Dropdown(
+            choices=["GLM5 (modal)"],
+            value="GLM5 (modal)",
+            label="Model Provider",
+            interactive=False,
+        )
+        gr.Markdown("""Uses our shared hosted models and keys, **rate-limited**.
+
+            **Note**: You might get `Error code: 502` sometimes.
+
+            Switch to Custom to use your own API key and model for testing.
+            """
         )
 
-        # Default info column (shown by default)
-        with gr.Column(visible=True) as default_group:
-            gr.Markdown("""Uses our shared hosted models and keys, **rate-limited**.
-
-                **Note**: You might get `Error code: 502` sometimes.
-
-                Switch to Custom to use your own API key and model for testing.
-                """
-            )
-            gr.Dropdown(
-                choices=["GLM5 (modal)"],
+    # Custom config column (hidden by default)
+    with gr.Column(visible=False) as custom_group:
+        with gr.Row():
+            model_dropdown = gr.Dropdown(
+                choices=list(MODEL_PRESETS.keys()),
                 value="GLM5 (modal)",
                 label="Model Provider",
-                interactive=False,
+                scale=1,
             )
-
-        # Custom config column (hidden by default)
-        with gr.Column(visible=False) as custom_group:
-            gr.Markdown("Use your own API keys and github token")
+            api_key_input = gr.Textbox(
+                label="API Key (required)",
+                type="password",
+                placeholder="Enter your API key",
+                scale=2,
+            )
+        env_components: dict[str, gr.Component] = {}
+        for env_key, env_meta in env_inputs.items():
             with gr.Row():
-                model_dropdown = gr.Dropdown(
-                    choices=list(MODEL_PRESETS.keys()),
-                    value="GLM5 (modal)",
-                    label="Model Provider",
-                    scale=1,
-                )
-                api_key_input = gr.Textbox(
-                    label="API Key (required)",
+                env_components[env_key] = gr.Textbox(
+                    label=env_meta["label"],
                     type="password",
-                    placeholder="Enter your API key",
-                    scale=2,
+                    placeholder=env_meta.get("placeholder", ""),
+                    info=env_meta.get("description", ""),
                 )
-            env_components: dict[str, gr.Component] = {}
-            for env_key, env_meta in env_inputs.items():
-                with gr.Row():
-                    env_components[env_key] = gr.Textbox(
-                        label=env_meta["label"],
-                        type="password",
-                        placeholder=env_meta.get("placeholder", ""),
-                        info=env_meta.get("description", ""),
-                    )
+
+        gr.Markdown("Use your own API keys and github token")
 
     def _toggle_mode(mode):
         if mode == "Our config (rate-limited)":
@@ -162,7 +166,8 @@ def build_demo_page(demo_key: str):
     gr.Markdown(f"# {config['title']}")
     source_file = config["source_file"]
     source_url = f"https://github.com/askmanu/acorn/blob/main/examples/{source_file}"
-    gr.Markdown(f"{config['description']}\n\nFile: [{source_file}]({source_url})")
+    gr.Markdown(f"Code: [{source_file}]({source_url})")
+    gr.Markdown(config["description"])
 
     # Two-column layout for input and output
     with gr.Row(equal_height=False):

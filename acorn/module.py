@@ -15,6 +15,31 @@ from acorn.llm import call_llm
 from acorn.types import Step, ToolCall, ToolResult
 
 
+def _resolve_refs(schema: dict, defs: dict) -> dict:
+    """Recursively replace $ref pointers with the actual schema from $defs."""
+    if isinstance(schema, dict):
+        if "$ref" in schema:
+            ref_name = schema["$ref"].split("/")[-1]
+            resolved = copy.deepcopy(defs[ref_name])
+            # The resolved schema may itself contain $refs
+            return _resolve_refs(resolved, defs)
+        return {k: _resolve_refs(v, defs) for k, v in schema.items()}
+    if isinstance(schema, list):
+        return [_resolve_refs(item, defs) for item in schema]
+    return schema
+
+
+def _clean_schema(schema: dict) -> None:
+    """Recursively remove 'title' keys that Pydantic adds."""
+    if isinstance(schema, dict):
+        schema.pop("title", None)
+        for v in schema.values():
+            _clean_schema(v)
+    elif isinstance(schema, list):
+        for item in schema:
+            _clean_schema(item)
+
+
 # Models for branch listing
 class BranchFieldInfo(BaseModel):
     """Schema field information for a branch input."""
@@ -861,7 +886,7 @@ class Module:
         module_ref = self
 
         def branch(**kwargs):
-            """Spawn a sub-agent branch. Call with no args to list available branches and their input schemas. Call with name and the branch's required input args to start it."""
+            """Spawn a sub-agent branch. IMPORTANT: You MUST first call branch() with no arguments to discover available branches and their exact input parameter names. Do NOT guess parameter names. After discovery, call with 'name' and the branch's required input parameters."""
             name = kwargs.pop("name", None)
             merge = kwargs.pop("merge", "end_result")
 
@@ -899,8 +924,8 @@ class Module:
                 available = [b.__name__ for b in module_ref.branches]
                 raise BranchError(f"Branch '{name}' not found. Available: {available}")
 
-            if merge not in ("end_result", "summarize", "merge"):
-                raise BranchError(f"Invalid merge strategy '{merge}'. Must be: end_result, summarize, merge")
+            if merge not in ("end_result", "summarize"):
+                raise BranchError(f"Invalid merge strategy '{merge}'. Must be: end_result, summarize")
 
             result, merged_content = module_ref._execute_branch(branch_class, merge, **kwargs)
             return merged_content
@@ -912,8 +937,10 @@ class Module:
             "function": {
                 "name": "branch",
                 "description": (
-                    "Spawn a sub-agent branch. Call with no args to list available branches "
-                    "and their input schemas. Call with name and the branch's required input args to start it."
+                    "Spawn a sub-agent branch. IMPORTANT: You MUST first call branch() with no arguments "
+                    "to discover available branches and their exact input parameter names. Do NOT guess "
+                    "parameter names. After discovery, call with 'name' set to the branch name and the "
+                    "branch's required input parameters using the exact names from the discovery response."
                 ),
                 "parameters": {
                     "type": "object",
@@ -921,7 +948,7 @@ class Module:
                         "name": {"type": "string", "description": "Name of the branch to spawn"},
                         "merge": {
                             "type": "string",
-                            "enum": ["merge", "summarize", "end_result"],
+                            "enum": ["summarize", "end_result"],
                             "description": "How to merge branch results. Default: end_result"
                         }
                     },
@@ -1002,7 +1029,7 @@ class Module:
 
         Args:
             branch_class: The Module subclass to execute as a branch
-            merge: Merge strategy ('end_result', 'summarize', 'merge')
+            merge: Merge strategy ('end_result', 'summarize')
             **kwargs: Arguments passed to the branch module's initial_input
 
         Returns:
@@ -1011,8 +1038,30 @@ class Module:
         Raises:
             BranchError: If branch execution fails
         """
-        # Deep-copy parent history
+        # Deep-copy parent history, excluding the current in-progress step.
+        # During parallel tool execution, self.history contains the assistant
+        # message with tool_use blocks that don't yet all have matching
+        # tool_result messages. This is invalid for providers like Anthropic
+        # that require every tool_use to be immediately followed by a
+        # tool_result. We strip the incomplete step from the branch's copy.
         branch_history = copy.deepcopy(self.history)
+
+        # Find the last assistant message with tool_calls — if it doesn't have
+        # a complete set of tool_results after it, remove it and any partial
+        # tool_results that follow.
+        for i in range(len(branch_history) - 1, -1, -1):
+            msg = branch_history[i]
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                expected_ids = {tc["id"] for tc in msg["tool_calls"]}
+                actual_ids = {
+                    branch_history[j].get("tool_call_id")
+                    for j in range(i + 1, len(branch_history))
+                    if branch_history[j].get("role") == "tool"
+                }
+                if expected_ids != actual_ids:
+                    # Incomplete step — trim from this assistant message onward
+                    branch_history = branch_history[:i]
+                break
 
         # Instantiate branch
         try:
@@ -1035,12 +1084,15 @@ class Module:
             raise BranchError(f"Branch execution failed: {e}")
 
         # Apply merge strategy
+        if result is None and merge == "end_result":
+            # Branch has no final_output — fall back to summarize so the
+            # parent gets useful context about what the branch did.
+            merge = "summarize"
+
         if merge == "end_result":
             merged_content = self._merge_end_result(result)
         elif merge == "summarize":
             merged_content = self._merge_summarize(branch_instance, result)
-        elif merge == "merge":
-            merged_content = self._merge_full(branch_instance, result)
         else:
             merged_content = self._merge_end_result(result)
 
@@ -1096,20 +1148,6 @@ class Module:
         summary = response.get("content", "")
         return f"Branch summary:\n{summary}\n\nFinal result:\n{result_text}"
 
-    def _merge_full(self, branch_instance, result):
-        """Merge strategy: full transcript of branch steps + result.
-
-        Args:
-            branch_instance: The executed branch module instance
-            result: The branch's final_output instance (or None)
-
-        Returns:
-            Formatted transcript string
-        """
-        history_text = self._format_branch_history(branch_instance.history)
-        result_text = result.model_dump_json(indent=2) if result else "None"
-        return f"Branch transcript:\n{history_text}\n\nFinal result:\n{result_text}"
-
     def _format_branch_history(self, history):
         """Format branch history as readable text.
 
@@ -1146,7 +1184,7 @@ class Module:
 
         Args:
             module_class: The Module subclass to execute (positional-only)
-            merge: Merge strategy ('end_result', 'summarize', 'merge')
+            merge: Merge strategy ('end_result', 'summarize')
             **kwargs: Arguments passed to the branch module's initial_input
 
         Returns:
@@ -1189,26 +1227,16 @@ class Module:
             __finish__._tool_schema = finish_schema
             return __finish__
 
-        # Build parameters from final_output model fields
-        parameters = {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
+        # Build parameters from final_output model's JSON schema
+        schema = self.final_output.model_json_schema()
 
-        for field_name, field_info in self.final_output.model_fields.items():
-            # Convert field type to JSON schema
-            field_schema = {"type": "string"}  # Simplified for now
+        # Resolve $defs references inline for nested models
+        defs = schema.pop("$defs", {})
+        if defs:
+            schema = _resolve_refs(schema, defs)
 
-            # Add description if available
-            if field_info.description:
-                field_schema["description"] = field_info.description
-
-            parameters["properties"][field_name] = field_schema
-
-            # Add to required if not optional
-            if field_info.is_required():
-                parameters["required"].append(field_name)
+        # Remove Pydantic extras the LLM doesn't need
+        _clean_schema(schema)
 
         # Create __finish__ tool schema
         finish_schema = {
@@ -1216,7 +1244,7 @@ class Module:
             "function": {
                 "name": "__finish__",
                 "description": "Call this function when you have the final output ready.",
-                "parameters": parameters
+                "parameters": schema
             }
         }
 

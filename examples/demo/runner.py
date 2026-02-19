@@ -35,28 +35,34 @@ def run_module(demo_key: str, model_name: str, api_key: str, env_vars: dict | No
         log_lines = [f"{indent}[{prefix}]"]
         response = step.response or {}
         thought = response.get("reasoning_content") or response.get("content") or ""
+
         if thought:
             thought = thought.strip()
-            if len(thought) > 300:
-                thought = thought[:300] + "…"
+            # if len(thought) > 500:
+            #     thought = thought[:500] + "…"
             log_lines.append(f"{indent}  {thought}")
+
         for tc in step.tool_calls:
             args_str = str(tc.arguments)
-            if len(args_str) > 150:
-                args_str = args_str[:150] + "…"
+            # if len(args_str) > 150:
+            #     args_str = args_str[:150] + "…"
             log_lines.append(f"{indent}  → {tc.name}({args_str})")
+
         for result in step.tool_results:
             if result.error:
-                log_lines.append(f"{indent}  ⚠ {result.name}: {result.error}")
+                log_lines.append(f"{indent}  ⚠ {result.name}: \n{result.error}")
             else:
                 out = str(result.output)
-                if len(out) > 200:
-                    out = out[:200] + "…"
-                log_lines.append(f"{indent}  ✓ {result.name}: {out}")
+                # if len(out) > 200:
+                #     out = out[:200] + "…"
+                log_lines.append(f"{indent}  ✓ {result.name}: \n{out}")
+
         print("\n".join(log_lines), flush=True)
+
         html_lines = [f"<b>{html_mod.escape(prefix)}</b>"] + [
             html_mod.escape(l.strip()) for l in log_lines[1:]
         ]
+
         return "<br>".join(html_lines)
 
     def _make_branch_on_step(bc):

@@ -31,7 +31,7 @@ jobs:
 
           # Tracked repo files (no heredocs)
           cp examples/requirements.txt hf_space/requirements.txt
-          cp examples/hf_README.md hf_space/README.md
+          cp examples/README.md hf_space/README.md
 
       - name: Push to HuggingFace Spaces
         env:

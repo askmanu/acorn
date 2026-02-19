@@ -388,31 +388,6 @@ class TestMergeStrategies:
         content = mod._merge_end_result(None)
         assert "<status>completed</status>" in content
 
-    def test_merge_full(self):
-        class Parent(Module):
-            model = "test-model"
-            final_output = AnswerOutput
-        mod = Parent()
-
-        # Create a mock branch instance with some history
-        branch_instance = MagicMock()
-        branch_instance.history = [
-            {"role": "system", "content": "Branch prompt"},
-            {"role": "user", "content": "Check claim"},
-            {"role": "assistant", "content": None, "tool_calls": [
-                {"function": {"name": "search", "arguments": '{"q": "test"}'}}
-            ]},
-            {"role": "tool", "content": "Search results"},
-        ]
-
-        result = VerificationOutput(verified=True, explanation="Confirmed")
-        content = mod._merge_full(branch_instance, result)
-
-        assert "Branch transcript:" in content
-        assert "Final result:" in content
-        assert "search" in content
-        assert "Search results" in content
-
     def test_merge_summarize(self):
         class Parent(Module):
             model = "test-model"
@@ -924,3 +899,45 @@ class TestBranchNoInitialInput:
             ]
             result, _ = mod._execute_branch(NoBranchInput, "end_result")
             assert result.answer == "Simple answer"
+
+
+# =============================================================================
+# Test: Auto-fallback to summarize when branch has no final_output
+# =============================================================================
+
+class TestBranchNoFinalOutputFallback:
+    def test_end_result_falls_back_to_summarize_when_no_final_output(self):
+        """When a branch has no final_output and merge='end_result',
+        it should auto-fallback to 'summarize' instead of returning None."""
+
+        class NoOutputBranch(Module):
+            """A branch with no final_output."""
+            model = "test-model"
+            max_steps = 3
+            # No final_output defined
+
+        class Parent(Module):
+            model = "test-model"
+            branches = [NoOutputBranch]
+            final_output = AnswerOutput
+
+        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+            # Branch calls __finish__ with no args (no final_output → returns None)
+            finish_call = create_tool_call("__finish__", {}, "call_fin")
+            mock_completion.return_value = MockResponse(tool_calls=[finish_call])
+
+            mod = Parent()
+            mod.history = [
+                {"role": "system", "content": "Parent system prompt"},
+                {"role": "user", "content": "test input"}
+            ]
+
+            # Patch _merge_summarize to verify it gets called
+            with patch.object(mod, '_merge_summarize', return_value="Branch summary:\nDid research.\n\nFinal result:\nNone") as mock_summarize:
+                result, merged = mod._execute_branch(NoOutputBranch, "end_result")
+
+                # result should be None (branch has no final_output)
+                assert result is None
+                # _merge_summarize should have been called instead of _merge_end_result
+                mock_summarize.assert_called_once()
+                assert "summary" in merged.lower()
