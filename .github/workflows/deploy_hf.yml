@@ -39,8 +39,11 @@ jobs:
         run: |
           cd hf_space
           git init --initial-branch=main
+          git lfs install
+          git lfs track "*.png" "*.jpg" "*.jpeg" "*.gif" "*.svg" "*.ico" "*.webp"
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
+          git add .gitattributes
           git add -A
           git commit -m "Deploy from GitHub ${GITHUB_SHA::7}"
           git push --force https://aonel:$HF_TOKEN@huggingface.co/spaces/askmanu/acorn main
