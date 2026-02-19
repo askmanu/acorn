@@ -22,6 +22,7 @@ Complete API surface for acorn v0.1.
 | `branches` | `dict` | `{}` | Branch module registry |
 | `metadata` | `dict \| None` | `None` | LiteLLM metadata for tracking |
 | `cache` | `bool \| list[dict] \| None` | `None` | Provider caching config. `True` = default strategy (system + first message), `False`/`None` = no caching, `list[dict]` = custom injection points |
+| `model_fallbacks` | `list[str \| dict]` | `[]` | Fallback models for automatic failover. Each entry can be a string (model name) or dict with keys: `id` (required), `vertex_location`, `vertex_credentials`, `reasoning`, `api_key`, `api_base` |
 
 #### Model Configuration Dict
 
@@ -45,6 +46,8 @@ model = {
     "api_base": "https://my-proxy.example.com/v1"
 }
 ```
+
+**Note:** Fallback models in `model_fallbacks` follow the same configuration format as `model`.
 
 ### XML Serialization Attributes
 
