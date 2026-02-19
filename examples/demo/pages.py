@@ -1,7 +1,13 @@
 """Page builders for the Gradio app."""
 
 import os
+from pathlib import Path
+
 import gradio as gr
+
+# Serve examples/ directory as static so logo.png is accessible
+_examples_dir = str(Path(__file__).parent.parent)
+gr.set_static_paths(paths=[_examples_dir])
 
 from .registry import DEMO_MODULES, MODEL_PRESETS
 from .schema_utils import get_input_schema, get_output_schema, create_input_component
@@ -42,17 +48,25 @@ def _format_value(val) -> str:
 def build_home_page():
     """Build the landing / index page listing all demos."""
 
-    gr.Markdown("# acorn Framework — Interactive Demos")
-    gr.Markdown("""
-       Explore acorn's capabilities through interactive examples.
-       Each demo runs a real Acorn Module with your inputs.
+    logo_path = str(Path(__file__).parent.parent / "logo.png")
+    with gr.Row():
+        with gr.Column(scale=3):
+            gr.Markdown("""
+                # acorn Framework — Interactive Demos
 
-       ## About
-       LLM agent framework with structured I/O.
-       Built on Pydantic for schemas and LiteLLM for multi-provider access.
-    """)
+                Explore acorn's capabilities through interactive examples.
+                Each demo runs a real Acorn Module with your inputs.
 
-    gr.Markdown("Check the project on github: [askmanu/acorn](https://github.com/askmanu/acorn)")
+                ## About
+                LLM agent framework with structured I/O.
+                Built on Pydantic for schemas and LiteLLM for multi-provider access.
+
+                Check the project on github: [askmanu/acorn](https://github.com/askmanu/acorn)
+            """)
+        with gr.Column(scale=1):
+            gr.Image(logo_path, show_label=False, container=False, height=80, elem_classes=["logo-right"])
+
+    # gr.Markdown("")
 
     gr.Markdown("---")
 

@@ -19,12 +19,9 @@ jobs:
           # Entry point
           cp examples/app.py hf_space/app.py
 
-          # Example modules (as a Python package)
+          # Example modules (as a Python package) — copy all .py files
           touch hf_space/examples/__init__.py
-          cp examples/simple_qa.py hf_space/examples/
-          cp examples/bus_factor.py hf_space/examples/
-          cp examples/hn_production_check.py hf_space/examples/
-          cp examples/doc_coverage.py hf_space/examples/
+          cp examples/*.py hf_space/examples/
 
           # Gradio UI code
           cp -r examples/demo/. hf_space/demo/

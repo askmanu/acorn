@@ -12,7 +12,7 @@ from demo.theme import acorn_theme
 
 
 def build_app() -> gr.Blocks:
-    interface = gr.Blocks(title="Acorn Demos", theme=acorn_theme)
+    interface = gr.Blocks(title="Acorn Demos", css=".logo-right { margin-left: auto; }")
 
     with interface:
         # --- Main Page (Root /) ---
@@ -29,4 +29,4 @@ def build_app() -> gr.Blocks:
 app = build_app()   # module-level for `gradio examples/app.py` hot-reload
 
 if __name__ == "__main__":
-    app.launch(show_error=True)
+    app.launch(show_error=True, theme=acorn_theme)
