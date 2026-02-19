@@ -26,6 +26,9 @@ jobs:
           # Gradio UI code
           cp -r examples/demo/. hf_space/demo/
 
+          # Static assets
+          cp -f examples/logo.png hf_space/logo.png 2>/dev/null || true
+
           # Tracked repo files (no heredocs)
           cp examples/requirements.txt hf_space/requirements.txt
           cp examples/README.md hf_space/README.md
