@@ -13,6 +13,8 @@ from .registry import DEMO_MODULES, MODEL_PRESETS
 from .schema_utils import get_input_schema, get_output_schema, create_input_component
 from .runner import run_module
 
+_FOOTER_HTML = '<div class="custom-footer">Built by <a href="https://github.com/askmanu/" target="_blank">askmanu</a></div>'
+
 
 def _build_progress_html(step_items: list[str]) -> str:
     """Build an HTML log of step progress."""
@@ -103,6 +105,7 @@ def build_home_page():
 
     cards_html += '</div>'
     gr.HTML(cards_html)
+    gr.HTML(_FOOTER_HTML)
 
 
 def build_demo_page(demo_key: str):
@@ -287,3 +290,5 @@ def build_demo_page(demo_key: str):
     all_outputs = list(output_components.values()) + [error_display, run_btn, step_progress]
 
     run_btn.click(fn=_run, inputs=all_inputs, outputs=all_outputs)
+
+    gr.HTML(_FOOTER_HTML)

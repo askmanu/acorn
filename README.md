@@ -189,10 +189,16 @@ def on_step(self, step):
 
 ## 🎯 Examples
 
-See `examples/` directory:
-- [`simple_qa.py`](examples/simple_qa.py) - Basic single-turn question answering
-- [`app.py`](examples/app.py) - Web application example
-- [`bus_factor.py`](examples/bus_factor.py) - Repository analysis tool
+Try them live on the [Gradio app](https://askmanu-acorn.hf.space) or browse the source in `examples/`:
+
+| Example | Category | Description |
+|---------|----------|-------------|
+| [Simple Q&A](https://askmanu-acorn.hf.space/simple_qa) | Basic | Single-turn question answering with structured output |
+| [HN Production Readiness](https://askmanu-acorn.hf.space/hn_production_check) | Agentic | Checks if a trending HN project is production-ready |
+| [Documentation Coverage](https://askmanu-acorn.hf.space/doc_coverage) | Agentic | Scores documentation coverage of a GitHub repo (0–100) |
+| [Bus Factor Calculator](https://askmanu-acorn.hf.space/bus_factor) | Branching | Calculates the bus factor of a GitHub repository |
+| [License Compatibility](https://askmanu-acorn.hf.space/license_checker) | Agentic | Checks dependency license compatibility for conflicts |
+| [Dependency Bloat Scanner](https://askmanu-acorn.hf.space/dependency_scanner) | Branching | Finds redundant and overlapping libraries in your deps |
 
 ---
 

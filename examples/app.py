@@ -11,8 +11,16 @@ from demo.pages import build_home_page, build_demo_page
 from demo.theme import acorn_theme
 
 
+_CUSTOM_CSS = """
+.logo-right { margin-left: auto; }
+footer { display: none !important; }
+.custom-footer { text-align: left; padding: 16px 0; color: #666; font-size: 13px; }
+.custom-footer a { color: #333; text-decoration: underline; }
+"""
+
+
 def build_app() -> gr.Blocks:
-    interface = gr.Blocks(title="Acorn Demos", css=".logo-right { margin-left: auto; }")
+    interface = gr.Blocks(title="Acorn Demos", css=_CUSTOM_CSS)
 
     with interface:
         # --- Main Page (Root /) ---
