@@ -4,6 +4,7 @@ from examples.bus_factor import BusFactorCalculator
 from examples.dependency_scanner import DependencyScanner
 from examples.doc_coverage import DocCoverageAnalyzer
 from examples.hn_production_check import HNProductionChecker
+from examples.license_checker import LicenseCompatibilityChecker, ProjectLicense
 from examples.simple_qa import SimpleQA
 
 
@@ -84,6 +85,28 @@ DEMO_MODULES = {
                 "description": "Personal access token — higher rate limits (60 → 5,000 req/hr)",
                 "placeholder": "ghp_...",
             }
+        },
+    },
+    "license_checker": {
+        "title": "License Compatibility",
+        "module_class": LicenseCompatibilityChecker,
+        "description": (
+            "Checks whether your project's dependencies have compatible licenses. "
+            "Fetches license info from PyPI or npm for each dependency, then cross-references "
+            "against known compatibility rules to flag conflicts (e.g. MIT project depending on "
+            "a GPL library). Returns a compliance report with conflicts, warnings, and a summary."
+        ),
+        "category": "Agentic",
+        "source_file": "license_checker.py",
+        "default_inputs": {
+            "project_license": ProjectLicense.MIT,
+            "file_content": (
+                "requests==2.31.0\n"
+                "flask==3.0.3\n"
+                "numpy==1.26.4\n"
+                "pandas==2.2.1\n"
+                "scikit-learn==1.4.2\n"
+            ),
         },
     },
     "dependency_scanner": {
