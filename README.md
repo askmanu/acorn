@@ -25,6 +25,7 @@ Build AI agents with type-safe inputs and outputs, automatic tool calling, and p
 - 🌊 **Streaming Responses** - Real-time output with partial structured updates
 - 💾 **Provider Caching** - Reduce latency and cost with prompt caching
 - 🛡️ **Model Fallbacks** - Automatic provider failover for high availability
+- 🌳 **Branching Workflows** - Spawn sub-agents that extend parent capabilities for parallel analysis and map-reduce patterns
 
 ---
 
@@ -239,9 +240,9 @@ pytest tests/test_agentic_loop.py -v
 - Forced termination strategies
 - Provider caching
 - Model fallbacks
+- Branching workflows
 
 ### 📋 Planned
-- Branching workflows
 - Async support
 
 ---
