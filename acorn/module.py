@@ -115,7 +115,7 @@ class Module:
     max_steps: int | None = None  # None = single-turn mode
 
     # Prompt and schema
-    system_prompt: str | Path = ""
+    system_prompt: "str | Path | Template" = ""
     initial_input: type[BaseModel] | None = None
     final_output: type[BaseModel] | None = None
 
@@ -761,9 +761,18 @@ class Module:
             System message dictionary
         """
         # Determine system prompt source
-        if isinstance(self.system_prompt, Path):
-            # Load from file
-            prompt_text = self.system_prompt.read_text()
+        from acorn.template import Template
+
+        if isinstance(self.system_prompt, Template):
+            prompt_text = self.system_prompt.render()
+        elif isinstance(self.system_prompt, Path):
+            # Resolve relative paths against the defining class's source file
+            path = self.system_prompt
+            if not path.is_absolute():
+                import inspect
+                class_file = Path(inspect.getfile(self.__class__)).resolve().parent
+                path = class_file / path
+            prompt_text = path.read_text()
         elif isinstance(self.system_prompt, str) and self.system_prompt:
             # Use string directly
             prompt_text = self.system_prompt

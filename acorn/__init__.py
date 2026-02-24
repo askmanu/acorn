@@ -13,10 +13,12 @@ from acorn.types import Step, ToolCall, ToolResult, StreamChunk
 from acorn.exceptions import AcornError, ParseError, BranchError, ToolConflictError
 from acorn.serialization import pydantic_to_xml, xml_to_pydantic
 from acorn.module import Module
+from acorn.template import Template
 
 __all__ = [
     "__version__",
     "Module",
+    "Template",
     "tool",
     "Partial",
     "Path",
