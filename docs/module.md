@@ -411,6 +411,206 @@ If `final_output = None`, `__finish__` takes no parameters:
 # __finish__()
 ```
 
+## Branching
+
+Branching lets you spawn sub-agents (branches) that inherit parent context and extend capabilities with additional tools or specialized logic. Use branching for parallel analysis, map-reduce patterns, verification workflows, and deep dives into subtasks.
+
+### When to Use Branching
+
+**Good use cases:**
+- **Map-reduce operations**: Analyze each dependency, file, or data item in parallel (see `examples/dependency_scanner.py`)
+- **Verification workflows**: Fact-check claims or validate outputs
+- **Deep analysis**: Spawn a specialist agent for detailed investigation
+- **Parallel subtasks**: Execute independent tasks simultaneously
+
+**Not recommended:**
+- Simple sequential tool calls (use regular tools instead)
+- Sharing state between parent and branch (branches are isolated)
+
+### Defining a Branch Module
+
+A branch is a regular Module subclass with `initial_input` and `final_output`:
+
+```python
+class FactCheckBranch(Module):
+    """Verify factual claims using external sources."""
+    
+    model = "anthropic/claude-sonnet-4-5-20250514"
+    initial_input = ClaimInput  # Branch-specific input
+    final_output = VerificationOutput  # Branch returns structured result
+    tools = [search_external_sources]  # Branch can have its own tools
+    max_steps = 5
+```
+
+### Registering Branches
+
+Add branch classes to the parent's `branches` list:
+
+```python
+class Parent(Module):
+    model = "anthropic/claude-haiku-4-5"
+    branches = [FactCheckBranch, DeepAnalysisBranch]
+    max_steps = 10
+    final_output = ParentOutput
+```
+
+This auto-generates a `branch()` tool the LLM can call.
+
+### The branch() Tool
+
+When branches are registered, the parent module automatically gets a `branch()` tool:
+
+**Discovery mode** (no arguments):
+```python
+# LLM calls: branch()
+# Returns XML listing available branches and their input schemas
+```
+
+**Execution mode** (with branch name and inputs):
+```python
+# LLM calls: branch(name="FactCheckBranch", claim="The sky is blue", merge="end_result")
+# Spawns FactCheckBranch with claim input, returns merged result
+```
+
+### Branch Inheritance
+
+Branches inherit from parent:
+
+**Inherited:**
+- Full conversation history (excluding system message)
+- Parent tools (accessible via `call_parent_tool()`)
+- Execution context
+
+**Not inherited:**
+- System prompt (branch uses its own)
+- Parent's `final_output` schema
+
+This inheritance model lets branches understand what the parent discussed without duplicating context.
+
+### Merge Strategies
+
+Control how branch results flow back to the parent:
+
+**`end_result` (default)**: Return only the branch's `final_output` as XML
+
+```python
+branch(name="FactCheckBranch", claim="...", merge="end_result")
+# Returns: <branch_result><verified>true</verified>...</branch_result>
+```
+
+**`summarize`**: LLM-generated summary of branch history + final result
+
+```python
+branch(name="FactCheckBranch", claim="...", merge="summarize")
+# Returns: "Branch summary: The branch verified... Final result: {...}"
+```
+
+Use `summarize` when you need context about how the branch arrived at its result, or when the branch has `final_output = None`.
+
+### Calling Parent Tools
+
+Branches can access parent tools via the auto-generated `call_parent_tool()` tool:
+
+**Discovery mode** (list parent tools):
+```python
+# Branch LLM calls: call_parent_tool()
+# Returns JSON list of available parent tools with schemas
+```
+
+**Execution mode** (call a parent tool):
+```python
+# Branch LLM calls: call_parent_tool(name="search_database", query="...")
+# Executes parent's search_database tool, returns result
+```
+
+This lets branches leverage parent capabilities without duplicating tool definitions.
+
+### Manual Branching
+
+Spawn branches programmatically from `on_step` or other callbacks:
+
+```python
+class Parent(Module):
+    max_steps = 10
+    
+    def on_step(self, step):
+        # Spawn branch manually
+        result = self.branch(FactCheckBranch, claim="The sky is blue", merge="end_result")
+        
+        # Result is injected into parent history automatically
+        # Continue parent execution with branch result
+        return step
+```
+
+Manual branching doesn't require the branch class to be in `self.branches`.
+
+### Common Patterns
+
+**Pattern 1: Map-reduce for parallel analysis**
+
+```python
+class PackageAnalyzerBranch(Module):
+    """Analyze one package."""
+    initial_input = PackageInput
+    final_output = PackageProfile
+    tools = [fetch_package_info]
+
+class DependencyScanner(Module):
+    """Scan all dependencies."""
+    branches = [PackageAnalyzerBranch]
+    max_steps = 60  # Enough for many parallel branches
+    
+    # LLM calls branch(name="PackageAnalyzerBranch", package_name="requests")
+    # for each dependency, then aggregates results
+```
+
+**Pattern 2: Verification workflow**
+
+```python
+class FactCheckBranch(Module):
+    """Verify a single claim."""
+    initial_input = ClaimInput
+    final_output = VerificationOutput
+    tools = [search_sources, cross_reference]
+
+class ArticleReviewer(Module):
+    """Review article for accuracy."""
+    branches = [FactCheckBranch]
+    
+    # LLM calls branch() for each claim in the article
+    # Collects verification results, writes review
+```
+
+**Pattern 3: Deep analysis with parent tools**
+
+```python
+class DeepDiveBranch(Module):
+    """Detailed analysis of a subtopic."""
+    initial_input = TopicInput
+    final_output = DetailedReport
+    
+    # Can call call_parent_tool() to access parent's tools
+    # Useful for reusing expensive resources (DB connections, APIs)
+
+class ResearchAgent(Module):
+    tools = [search_database, query_api]
+    branches = [DeepDiveBranch]
+```
+
+### Best Practices
+
+**Keep branches focused**: Each branch should have a clear, single purpose.
+
+**Use appropriate merge strategies**: Use `end_result` for structured outputs, `summarize` when you need execution context.
+
+**Set reasonable max_steps**: Parent needs enough steps for all branch calls plus its own work. For N branches: `max_steps >= N + 5`.
+
+**Leverage parent tools**: Use `call_parent_tool()` instead of duplicating tools in branches.
+
+**Handle branch failures**: Branches can fail (API errors, validation failures). Parent should have fallback logic.
+
+**Consider cost**: Each branch is a separate module execution with its own LLM calls. Use branching when parallelization or specialized logic provides clear value.
+
 ## Lifecycle Hooks
 
 Customize behavior at key points in execution.

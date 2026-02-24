@@ -59,6 +59,7 @@ The web interface launches at `http://localhost:7860`.
 ### Agentic
 - [HN Production Readiness](hn_production_check.py)
 - [Documentation Coverage](doc_coverage.py)
+- [License Compatibility](license_checker.py)
 
 ### Branching
 - [Bus Factor Calculator](bus_factor.py)
@@ -78,6 +79,7 @@ examples/
 ├── simple_qa.py             # Basic Q&A example
 ├── hn_production_check.py   # Agentic example
 ├── doc_coverage.py          # Agentic example
+├── license_checker.py       # Agentic example - checks dependency license compatibility
 ├── bus_factor.py            # Branching example
 ├── dependency_scanner.py    # Branching map-reduce example
 ├── logo.png                 # Static asset
