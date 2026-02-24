@@ -19,7 +19,7 @@ def test_module_instantiation():
     assert mod is not None
     assert mod.model == "test-model"
     assert mod.temperature == 0.7
-    assert mod.max_tokens == 4096
+    assert mod.max_tokens is None
 
 
 def test_module_custom_config():
@@ -218,3 +218,45 @@ def test_init_validation_single_turn_requires_final_output():
 
     with pytest.raises(ValueError, match="final_output must be defined for single-turn"):
         InvalidModule()
+
+
+def test_module_new_params_defaults():
+    """Test that new completion parameters default to None."""
+    class Output(BaseModel):
+        result: str
+
+    class DefaultModule(Module):
+        model = "test-model"
+        final_output = Output
+
+    mod = DefaultModule()
+    assert mod.max_tokens is None
+    assert mod.max_completion_tokens is None
+    assert mod.top_p is None
+    assert mod.stop is None
+    assert mod.presence_penalty is None
+    assert mod.stream_options is None
+
+
+def test_module_new_params_override():
+    """Test that new completion parameters can be overridden."""
+    class Output(BaseModel):
+        result: str
+
+    class CustomModule(Module):
+        model = "test-model"
+        final_output = Output
+        max_tokens = 2048
+        max_completion_tokens = 1024
+        top_p = 0.9
+        stop = ["\n", "END"]
+        presence_penalty = 0.5
+        stream_options = {"include_usage": True}
+
+    mod = CustomModule()
+    assert mod.max_tokens == 2048
+    assert mod.max_completion_tokens == 1024
+    assert mod.top_p == 0.9
+    assert mod.stop == ["\n", "END"]
+    assert mod.presence_penalty == 0.5
+    assert mod.stream_options == {"include_usage": True}

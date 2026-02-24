@@ -106,7 +106,12 @@ class Module:
     # Default configuration
     model: str | dict = ""
     temperature: float = 0.7
-    max_tokens: int = 4096
+    max_tokens: int | None = None
+    max_completion_tokens: int | None = None
+    top_p: float | None = None
+    stop: str | list[str] | None = None
+    presence_penalty: float | None = None
+    stream_options: dict | None = None
     max_steps: int | None = None  # None = single-turn mode
 
     # Prompt and schema
@@ -417,6 +422,11 @@ class Module:
             tools=tool_schemas,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            max_completion_tokens=self.max_completion_tokens,
+            top_p=self.top_p,
+            stop=self.stop,
+            presence_penalty=self.presence_penalty,
+            stream_options=self.stream_options,
             stream=self.stream,
             on_stream=on_stream_callback,
             final_output_schema=self.final_output,
@@ -458,6 +468,11 @@ class Module:
                 tools=tool_schemas,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                max_completion_tokens=self.max_completion_tokens,
+                top_p=self.top_p,
+                stop=self.stop,
+                presence_penalty=self.presence_penalty,
+                stream_options=self.stream_options,
                 stream=self.stream,
                 on_stream=on_stream_callback,
                 final_output_schema=self.final_output,
@@ -556,6 +571,11 @@ class Module:
                 tools=tool_schemas,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                max_completion_tokens=self.max_completion_tokens,
+                top_p=self.top_p,
+                stop=self.stop,
+                presence_penalty=self.presence_penalty,
+                stream_options=self.stream_options,
                 stream=self.stream,
                 on_stream=on_stream_callback,
                 final_output_schema=self.final_output,
@@ -807,6 +827,11 @@ class Module:
                 tools=tool_schemas,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                max_completion_tokens=self.max_completion_tokens,
+                top_p=self.top_p,
+                stop=self.stop,
+                presence_penalty=self.presence_penalty,
+                stream_options=self.stream_options,
                 metadata=self.metadata,
                 cache=self.cache,
                 model_fallbacks=self.model_fallbacks or None,
@@ -1077,6 +1102,19 @@ class Module:
             msg for msg in branch_history if msg.get("role") != "system"
         ]
 
+        # If parent has cache=True, override branch cache to mark inherited
+        # history as cacheable. This avoids re-processing the parent context
+        # on every LLM call within the branch.
+        if self.cache is True and branch_instance._inherited_history:
+            # Cache breakpoints: system message + last inherited history message.
+            # Messages layout: [system, *inherited_history, branch_user_msg, ...]
+            # The last inherited message is at index len(inherited_history).
+            last_inherited_idx = len(branch_instance._inherited_history)
+            branch_instance.cache = [
+                {"location": "message", "role": "system"},
+                {"location": "message", "index": last_inherited_idx},
+            ]
+
         # Execute branch
         try:
             result = branch_instance(**kwargs)
@@ -1300,6 +1338,11 @@ class Module:
                 tools=tool_schemas,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                max_completion_tokens=self.max_completion_tokens,
+                top_p=self.top_p,
+                stop=self.stop,
+                presence_penalty=self.presence_penalty,
+                stream_options=self.stream_options,
                 tool_choice={"type": "function", "function": {"name": "__finish__"}},
                 metadata=self.metadata,
                 cache=self.cache,
@@ -1382,6 +1425,11 @@ class Module:
             tools=tool_schemas,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            max_completion_tokens=self.max_completion_tokens,
+            top_p=self.top_p,
+            stop=self.stop,
+            presence_penalty=self.presence_penalty,
+            stream_options=self.stream_options,
             tool_choice={"type": "function", "function": {"name": "__finish__"}},
             metadata=self.metadata,
             cache=self.cache,

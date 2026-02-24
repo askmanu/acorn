@@ -694,3 +694,164 @@ def test_call_llm_with_empty_model_fallbacks():
 
         call_args = mock_completion.call_args
         assert "fallbacks" not in call_args.kwargs
+
+
+# Tests for new completion parameters
+
+def test_call_llm_max_tokens_none_by_default():
+    """Test that max_tokens is not added when None."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+        )
+
+        call_args = mock_completion.call_args
+        assert "max_tokens" not in call_args.kwargs
+
+
+def test_call_llm_max_tokens_passed_when_set():
+    """Test that max_tokens is passed when explicitly set."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            max_tokens=2048,
+        )
+
+        call_args = mock_completion.call_args
+        assert call_args.kwargs["max_tokens"] == 2048
+
+
+def test_call_llm_max_completion_tokens():
+    """Test that max_completion_tokens is passed through."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            max_completion_tokens=1024,
+        )
+
+        call_args = mock_completion.call_args
+        assert call_args.kwargs["max_completion_tokens"] == 1024
+
+
+def test_call_llm_top_p():
+    """Test that top_p is passed through."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            top_p=0.9,
+        )
+
+        call_args = mock_completion.call_args
+        assert call_args.kwargs["top_p"] == 0.9
+
+
+def test_call_llm_stop():
+    """Test that stop is passed through."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            stop=["\n", "END"],
+        )
+
+        call_args = mock_completion.call_args
+        assert call_args.kwargs["stop"] == ["\n", "END"]
+
+
+def test_call_llm_presence_penalty():
+    """Test that presence_penalty is passed through."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            presence_penalty=0.6,
+        )
+
+        call_args = mock_completion.call_args
+        assert call_args.kwargs["presence_penalty"] == 0.6
+
+
+def test_call_llm_stream_options():
+    """Test that stream_options is passed through."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+            stream_options={"include_usage": True},
+        )
+
+        call_args = mock_completion.call_args
+        assert call_args.kwargs["stream_options"] == {"include_usage": True}
+
+
+def test_call_llm_none_params_not_added():
+    """Test that None-valued new params are not added to kwargs."""
+    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(
+                message=MagicMock(content="test", tool_calls=[]),
+                finish_reason="stop"
+            )]
+        )
+
+        call_llm(
+            messages=[{"role": "user", "content": "test"}],
+            model="gpt-4",
+        )
+
+        call_args = mock_completion.call_args
+        for key in ("max_tokens", "max_completion_tokens", "top_p", "stop", "presence_penalty", "stream_options"):
+            assert key not in call_args.kwargs

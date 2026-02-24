@@ -37,7 +37,12 @@ def call_llm(
     model: str | dict,
     tools: list[dict] | None = None,
     temperature: float = 0.7,
-    max_tokens: int = 4096,
+    max_tokens: int | None = None,
+    max_completion_tokens: int | None = None,
+    top_p: float | None = None,
+    stop: str | list[str] | None = None,
+    presence_penalty: float | None = None,
+    stream_options: dict | None = None,
     tool_choice: str | dict | None = None,
     stream: bool = False,
     on_stream: Callable[[StreamChunk], None] | None = None,
@@ -82,7 +87,6 @@ def call_llm(
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
         }
     else:
         # Model is a dict
@@ -90,7 +94,6 @@ def call_llm(
             "model": model["id"],
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
         }
 
         # Add optional Vertex AI parameters
@@ -112,6 +115,20 @@ def call_llm(
                 kwargs["reasoning_effort"] = "medium"
             else:
                 kwargs["reasoning_effort"] = reasoning
+
+    # Add optional completion parameters
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    if max_completion_tokens is not None:
+        kwargs["max_completion_tokens"] = max_completion_tokens
+    if top_p is not None:
+        kwargs["top_p"] = top_p
+    if stop is not None:
+        kwargs["stop"] = stop
+    if presence_penalty is not None:
+        kwargs["presence_penalty"] = presence_penalty
+    if stream_options is not None:
+        kwargs["stream_options"] = stream_options
 
     # Add tools if provided
     if tools:
