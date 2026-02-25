@@ -1,3 +1,8 @@
+---
+title: Getting Started
+nav_order: 1
+---
+
 # Getting Started with acorn
 
 This guide walks you through installing acorn and building your first two agents. You'll learn the basics of structured I/O and agentic loops.

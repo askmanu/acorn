@@ -1,3 +1,8 @@
+---
+title: Module
+nav_order: 2
+---
+
 # Module
 
 The `Module` class is the foundation of acorn. It encapsulates everything needed to build an LLM agent: model configuration, input/output schemas, tools, and execution logic.

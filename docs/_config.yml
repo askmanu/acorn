@@ -1,0 +1,30 @@
+title: Acorn
+description: LLM agent framework with structured I/O
+url: https://askmanu.github.io
+baseurl: /acorn
+
+# Build
+markdown: kramdown
+highlighter: rouge
+permalink: pretty
+
+# Exclude from build
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+
+# Plugins
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+# Custom theme defaults
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+
+# Collections for future use
+collections_dir: .

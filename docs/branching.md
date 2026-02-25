@@ -1,3 +1,8 @@
+---
+title: Branching
+nav_order: 3
+---
+
 # Branching
 
 Branching allows a module to spawn sub-agents that run independently and return results to the parent. Branches are specialized modules that inherit context from their parent and add focused capabilities for specific tasks.

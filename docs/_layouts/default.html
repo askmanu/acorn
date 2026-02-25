@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if page.title %}{{ page.title }} | {{ site.title }}{% else %}{{ site.title }}{% endif %}</title>
+  <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
+  {% seo %}
+</head>
+<body>
+  <div class="site-wrapper">
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <a href="{{ '/' | relative_url }}" class="site-title">{{ site.title }}</a>
+        <p class="site-description">{{ site.description }}</p>
+      </div>
+      <ul class="nav-list">
+        {% assign sorted_pages = site.pages | where_exp: "p", "p.nav_order" | sort: "nav_order" %}
+        {% for p in sorted_pages %}
+        <li>
+          <a href="{{ p.url | relative_url }}" {% if page.url == p.url %}class="active"{% endif %}>
+            {{ p.title }}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      <div class="sidebar-footer">
+        <a href="https://github.com/askmanu/acorn">GitHub</a>
+      </div>
+    </nav>
+
+    <main class="content">
+      <article>
+        {% if page.title %}
+        <h1 class="page-title">{{ page.title }}</h1>
+        {% endif %}
+        {{ content }}
+      </article>
+    </main>
+  </div>
+</body>
+</html>
