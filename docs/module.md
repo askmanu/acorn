@@ -287,7 +287,7 @@ result = executor()  # Returns None after executing tools
 
 ## System Prompt
 
-Instructions for the LLM. Four ways to set it:
+Instructions for the LLM. Five ways to set it:
 
 **1. Docstring (recommended)**
 
@@ -324,6 +324,193 @@ class MyModule(Module):
     def system_prompt(self):
         return f"You are a helpful assistant. Today is {date.today()}."
 ```
+
+**5. Template (Jinja2)**
+
+Use `Template` for dynamic prompts with variable substitution and Jinja2 features like loops, conditionals, and filters.
+
+```python
+from acorn import Template
+
+class MyModule(Module):
+    system_prompt = Template(
+        template="You are a {{ role }} assistant. Today is {{ date }}.",
+        args={"role": "helpful", "date": "2024-01-15"}
+    )
+```
+
+### What is Template?
+
+`Template` is a Jinja2-based prompt builder that separates prompt logic from code. Use it when you need:
+
+- **Dynamic prompts**: Inject runtime values (dates, user names, configuration)
+- **Reusability**: Share templates across modules with different variables
+- **Complex logic**: Use loops, conditionals, and filters for sophisticated prompt construction
+
+### Template Options
+
+**Inline string template:**
+
+```python
+from acorn import Template
+
+class ChatBot(Module):
+    system_prompt = Template(
+        template="You are {{ name }}, a {{ personality }} assistant specialized in {{ domain }}.",
+        args={
+            "name": "Alex",
+            "personality": "friendly",
+            "domain": "Python programming"
+        }
+    )
+```
+
+**File-based template:**
+
+```python
+from acorn import Template
+
+class ChatBot(Module):
+    system_prompt = Template(
+        path="prompts/chatbot.md",
+        args={
+            "name": "Alex",
+            "personality": "friendly",
+            "domain": "Python programming"
+        }
+    )
+```
+
+The `path` is relative to the module's file. For example, if your module is in `agents/chatbot.py`, then `path="prompts/chatbot.md"` resolves to `agents/prompts/chatbot.md`.
+
+### Template Variables
+
+Pass variables via the `args` parameter. Access them in templates with `{{ variable_name }}` syntax:
+
+```python
+system_prompt = Template(
+    template="You are {{ role }}. Your expertise: {{ expertise }}.",
+    args={"role": "advisor", "expertise": "data science"}
+)
+```
+
+You can update `args` dynamically before rendering:
+
+```python
+class MyModule(Module):
+    system_prompt = Template(
+        template="Current mode: {{ mode }}",
+        args={"mode": "default"}
+    )
+    
+    def __init__(self, mode="default"):
+        self.system_prompt.args["mode"] = mode
+        super().__init__()
+```
+
+### Jinja2 Features
+
+Templates support full Jinja2 syntax:
+
+**Conditionals:**
+
+```python
+template = """
+You are a {{ role }} assistant.
+{% if strict_mode %}
+Follow these rules strictly without exception.
+{% else %}
+Use your best judgment when applying these guidelines.
+{% endif %}
+"""
+```
+
+**Loops:**
+
+```python
+template = """
+Available tools:
+{% for tool in tools %}
+- {{ tool.name }}: {{ tool.description }}
+{% endfor %}
+"""
+
+args = {
+    "tools": [
+        {"name": "search", "description": "Search the web"},
+        {"name": "calculate", "description": "Perform calculations"}
+    ]
+}
+```
+
+**Filters:**
+
+```python
+template = """
+User: {{ username | upper }}
+Role: {{ role | capitalize }}
+Summary: {{ description | truncate(100) }}
+"""
+```
+
+### Complete Example
+
+```python
+from acorn import Module, Template
+from pydantic import BaseModel
+from datetime import datetime
+
+class CodeReviewerModule(Module):
+    """Code review assistant with dynamic configuration."""
+    
+    model = "anthropic/claude-sonnet-4-5-20250514"
+    
+    system_prompt = Template(
+        path="prompts/code_reviewer.md",
+        args={
+            "reviewer_name": "CodeBot",
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "languages": ["Python", "JavaScript", "Go"],
+            "strict_mode": True
+        }
+    )
+    
+    class Input(BaseModel):
+        code: str
+        language: str
+    
+    class Output(BaseModel):
+        issues: list[str]
+        suggestions: list[str]
+        rating: int
+```
+
+**prompts/code_reviewer.md:**
+
+```markdown
+You are {{ reviewer_name }}, a code review assistant.
+
+Today's date: {{ date }}
+
+Supported languages:
+{% for lang in languages %}
+- {{ lang }}
+{% endfor %}
+
+{% if strict_mode %}
+Apply strict coding standards. Flag all style violations.
+{% else %}
+Focus on critical issues. Style suggestions are optional.
+{% endif %}
+```
+
+### Benefits
+
+- **Separation of concerns**: Keep prompt text separate from Python code
+- **Version control**: Track prompt changes independently
+- **Reusability**: Share templates across multiple modules with different variables
+- **Maintainability**: Update prompts without touching code
+- **Type safety**: Variables are passed as Python dicts, not string concatenation
 
 ## Tools
 
