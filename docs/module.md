@@ -327,7 +327,7 @@ class MyModule(Module):
 
 **5. Template (Jinja2)**
 
-Use `Template` for dynamic prompts with variable substitution and Jinja2 features like loops, conditionals, and filters.
+Use `Template` for dynamic prompts with variable substitution and Jinja2 features.
 
 ```python
 from acorn import Template
@@ -339,13 +339,15 @@ class MyModule(Module):
     )
 ```
 
-### What is Template?
+### When to Use Template
 
 `Template` is a Jinja2-based prompt builder that separates prompt logic from code. Use it when you need:
 
 - **Dynamic prompts**: Inject runtime values (dates, user names, configuration)
 - **Reusability**: Share templates across modules with different variables
 - **Complex logic**: Use loops, conditionals, and filters for sophisticated prompt construction
+
+For simple static prompts, use docstrings or string attributes. For prompts that need occasional dynamic values, use methods. For prompts requiring complex logic or shared templates, use `Template`.
 
 ### Template Options
 
@@ -355,6 +357,8 @@ class MyModule(Module):
 from acorn import Template
 
 class ChatBot(Module):
+    model = "anthropic/claude-sonnet-4-5-20250514"
+    
     system_prompt = Template(
         template="You are {{ name }}, a {{ personality }} assistant specialized in {{ domain }}.",
         args={
@@ -371,6 +375,8 @@ class ChatBot(Module):
 from acorn import Template
 
 class ChatBot(Module):
+    model = "anthropic/claude-sonnet-4-5-20250514"
+    
     system_prompt = Template(
         path="prompts/chatbot.md",
         args={
@@ -398,6 +404,8 @@ You can update `args` dynamically before rendering:
 
 ```python
 class MyModule(Module):
+    model = "anthropic/claude-sonnet-4-5-20250514"
+    
     system_prompt = Template(
         template="Current mode: {{ mode }}",
         args={"mode": "default"}
@@ -423,6 +431,8 @@ Follow these rules strictly without exception.
 Use your best judgment when applying these guidelines.
 {% endif %}
 """
+
+system_prompt = Template(template=template, args={"role": "helpful", "strict_mode": True})
 ```
 
 **Loops:**
@@ -441,6 +451,8 @@ args = {
         {"name": "calculate", "description": "Perform calculations"}
     ]
 }
+
+system_prompt = Template(template=template, args=args)
 ```
 
 **Filters:**
@@ -451,13 +463,21 @@ User: {{ username | upper }}
 Role: {{ role | capitalize }}
 Summary: {{ description | truncate(100) }}
 """
+
+args = {
+    "username": "john_doe",
+    "role": "developer",
+    "description": "A very long description that will be truncated..."
+}
+
+system_prompt = Template(template=template, args=args)
 ```
 
 ### Complete Example
 
 ```python
 from acorn import Module, Template
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 class CodeReviewerModule(Module):
@@ -476,13 +496,16 @@ class CodeReviewerModule(Module):
     )
     
     class Input(BaseModel):
-        code: str
-        language: str
+        code: str = Field(description="Code to review")
+        language: str = Field(description="Programming language")
     
     class Output(BaseModel):
-        issues: list[str]
-        suggestions: list[str]
-        rating: int
+        issues: list[str] = Field(description="List of issues found")
+        suggestions: list[str] = Field(description="List of suggestions")
+        rating: int = Field(description="Code quality rating 1-10")
+    
+    initial_input = Input
+    final_output = Output
 ```
 
 **prompts/code_reviewer.md:**
