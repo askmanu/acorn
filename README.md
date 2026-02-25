@@ -135,6 +135,16 @@ result = agent(topic="Large Language Models", depth="shallow")
 
 ---
 
+## 📖 Documentation
+
+**[askmanu.github.io/acorn](https://askmanu.github.io/acorn)**
+
+- [Getting Started](https://askmanu.github.io/acorn/getting-started) - Installation and first steps
+- [Module Reference](https://askmanu.github.io/acorn/module) - Complete Module API documentation
+- [Branching](https://askmanu.github.io/acorn/branching) - Sub-agents and parallel processing
+
+---
+
 ## 📚 Core Concepts
 
 ### Module
@@ -220,13 +230,6 @@ pytest tests/test_agentic_loop.py -v
 
 ---
 
-## 📖 Documentation
-
-- [Getting Started](docs/getting-started.md) - Installation and first steps
-- [Module Reference](docs/module.md) - Complete Module API documentation
-
----
-
 ## 🛣️ Roadmap
 
 ### ✅ Completed
@@ -244,6 +247,8 @@ pytest tests/test_agentic_loop.py -v
 
 ### 📋 Planned
 - Async support
+- More docs
+- Integration examples with different providers (vector DBs, observability tools, etc.)
 
 ---
 
@@ -258,16 +263,6 @@ Contributions welcome! Please:
 
 ---
 
-## 💬 Questions?
-
-Check out:
-- [Getting Started](docs/getting-started.md) for installation and examples
-- [Module Reference](docs/module.md) for detailed API docs
-- [Examples](examples/) for working code
-- [Tests](tests/) for usage patterns
-
----
-
 ## 🙏 Acknowledgments
 Thanks to @rosenbrockc for donating the `acorn` pip package name.
 
@@ -276,5 +271,3 @@ Thanks to @rosenbrockc for donating the `acorn` pip package name.
 ## 📄 License
 
 [MIT License](LICENSE)
-
----
