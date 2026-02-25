@@ -29,6 +29,8 @@ def _translate_model_to_litellm(model: str | dict) -> str | dict:
     if "reasoning" in model:
         reasoning = model["reasoning"]
         result["reasoning_effort"] = "medium" if reasoning is True else reasoning
+    if "litellm_params" in model:
+        result.update(model["litellm_params"])
     return result
 
 
@@ -115,6 +117,10 @@ def call_llm(
                 kwargs["reasoning_effort"] = "medium"
             else:
                 kwargs["reasoning_effort"] = reasoning
+
+        # Forward any extra litellm-specific parameters
+        if "litellm_params" in model:
+            kwargs.update(model["litellm_params"])
 
     # Add optional completion parameters
     if max_tokens is not None:

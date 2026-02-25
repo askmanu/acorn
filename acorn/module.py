@@ -70,7 +70,8 @@ class Module:
                    "id": "model-name",  # required
                    "vertex_location": "...",  # optional
                    "vertex_credentials": "...",  # optional
-                   "reasoning": True | "low" | "medium" | "high"  # optional
+                   "reasoning": True | "low" | "medium" | "high",  # optional
+                   "litellm_params": {"key": "value"},  # optional, forwarded to litellm
                }
         temperature: Sampling temperature (0.0-1.0)
         max_tokens: Maximum tokens to generate
@@ -197,7 +198,7 @@ class Module:
                 raise ValueError("Model dict must contain 'id' key")
 
             # Validate allowed keys
-            allowed_keys = {"id", "vertex_location", "vertex_credentials", "reasoning", "api_key", "api_base"}
+            allowed_keys = {"id", "vertex_location", "vertex_credentials", "reasoning", "api_key", "api_base", "litellm_params"}
             invalid_keys = set(self.model.keys()) - allowed_keys
             if invalid_keys:
                 raise ValueError(f"Invalid model config keys: {invalid_keys}. Allowed: {allowed_keys}")
@@ -227,7 +228,7 @@ class Module:
         if not self.model_fallbacks:
             return
 
-        allowed_keys = {"id", "vertex_location", "vertex_credentials", "reasoning", "api_key", "api_base"}
+        allowed_keys = {"id", "vertex_location", "vertex_credentials", "reasoning", "api_key", "api_base", "litellm_params"}
 
         for i, fallback in enumerate(self.model_fallbacks):
             if isinstance(fallback, str):
