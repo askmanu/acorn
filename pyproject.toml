@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "acorn"
-version = "0.7.2"
+version = "0.8.0a1"
 description = "LLM agent framework with structured I/O"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0",
     "ruff>=0.1.0",
 ]
@@ -77,3 +78,4 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --cov=acorn --cov-report=term-missing"
+asyncio_mode = "auto"

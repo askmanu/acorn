@@ -30,7 +30,7 @@ def create_tool_call(name: str, arguments: dict, call_id: str = "call_123"):
     return tc
 
 
-def test_history_populated_single_turn():
+async def test_history_populated_single_turn():
     """Test that history is populated in single-turn mode."""
     class Input(BaseModel):
         text: str
@@ -43,12 +43,12 @@ def test_history_populated_single_turn():
         initial_input = Input
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         finish_call = create_tool_call("__finish__", {"summary": "Test summary"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         mod = TestModule()
-        result = mod(text="Sample text")
+        result = await mod(text="Sample text")
 
         # History should have at least 2 messages: system, user, assistant
         assert len(mod.history) >= 2, "History should be populated"
@@ -63,7 +63,7 @@ def test_history_populated_single_turn():
         assert "tool_calls" in mod.history[2]
 
 
-def test_history_accessible_after_execution():
+async def test_history_accessible_after_execution():
     """Test that history can be accessed after module execution."""
     class Output(BaseModel):
         result: str
@@ -72,12 +72,12 @@ def test_history_accessible_after_execution():
         model = "test-model"
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         finish_call = create_tool_call("__finish__", {"result": "done"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         mod = HistoryModule()
-        result = mod()
+        result = await mod()
 
         # Should be able to iterate over history
         for msg in mod.history:
@@ -85,7 +85,7 @@ def test_history_accessible_after_execution():
             assert msg["role"] in ["system", "user", "assistant", "tool"]
 
 
-def test_history_multiple_executions():
+async def test_history_multiple_executions():
     """Test that history resets between executions."""
     class Output(BaseModel):
         result: str
@@ -94,18 +94,18 @@ def test_history_multiple_executions():
         model = "test-model"
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         finish_call = create_tool_call("__finish__", {"result": "done"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         mod = TestModule()
 
         # First execution
-        result1 = mod()
+        result1 = await mod()
         history1_len = len(mod.history)
 
         # Second execution
-        result2 = mod()
+        result2 = await mod()
         history2_len = len(mod.history)
 
         # History should be reset/replaced, not accumulated

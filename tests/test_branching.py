@@ -2,7 +2,7 @@
 
 import pytest
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from pydantic import BaseModel
 
 from acorn import Module, tool
@@ -155,7 +155,7 @@ class TestBranchToolGeneration:
         tool_names = [t.__name__ for t in mod._collected_tools]
         assert "branch" not in tool_names
 
-    def test_branch_tool_list_mode(self):
+    async def test_branch_tool_list_mode(self):
         class Parent(Module):
             model = "test-model"
             branches = [FactCheckBranch]
@@ -172,7 +172,7 @@ class TestBranchToolGeneration:
         assert branch_tool is not None
 
         # Call with no args -> list branches (returns XML now)
-        result = branch_tool()
+        result = await branch_tool()
         assert "FactCheckBranch" in result
         assert "Verify factual claims" in result
         assert "input_schema" in result
@@ -191,7 +191,7 @@ class TestBranchToolGeneration:
         assert "merge" in schema["function"]["parameters"]["properties"]
         assert schema["function"]["parameters"]["additionalProperties"] is True
 
-    def test_branch_tool_invalid_name(self):
+    async def test_branch_tool_invalid_name(self):
         class Parent(Module):
             model = "test-model"
             branches = [FactCheckBranch]
@@ -200,9 +200,9 @@ class TestBranchToolGeneration:
 
         branch_tool = [t for t in mod._collected_tools if t.__name__ == "branch"][0]
         with pytest.raises(BranchError, match="not found"):
-            branch_tool(name="nonexistent")
+            await branch_tool(name="nonexistent")
 
-    def test_branch_tool_invalid_merge_strategy(self):
+    async def test_branch_tool_invalid_merge_strategy(self):
         class Parent(Module):
             model = "test-model"
             branches = [FactCheckBranch]
@@ -211,7 +211,7 @@ class TestBranchToolGeneration:
 
         branch_tool = [t for t in mod._collected_tools if t.__name__ == "branch"][0]
         with pytest.raises(BranchError, match="Invalid merge strategy"):
-            branch_tool(name="FactCheckBranch", merge="invalid")
+            await branch_tool(name="FactCheckBranch", merge="invalid")
 
 
 # =============================================================================
@@ -219,7 +219,7 @@ class TestBranchToolGeneration:
 # =============================================================================
 
 class TestBranchExecution:
-    def test_branch_execution_end_result(self):
+    async def test_branch_execution_end_result(self):
         """Test declarative branch execution with end_result merge."""
         class Parent(Module):
             model = "test-model"
@@ -227,7 +227,7 @@ class TestBranchExecution:
             final_output = AnswerOutput
             max_steps = 3
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             # Parent step 1: calls branch tool
             branch_call = create_tool_call(
                 "branch",
@@ -254,19 +254,19 @@ class TestBranchExecution:
             ]
 
             mod = Parent()
-            result = mod()
+            result = await mod()
 
             assert result.answer == "Fact checked successfully"
             assert mock_completion.call_count == 3
 
-    def test_branch_execution_passes_kwargs(self):
+    async def test_branch_execution_passes_kwargs(self):
         """Test that branch kwargs are passed to the branch module."""
         class Parent(Module):
             model = "test-model"
             branches = [FactCheckBranch]
             final_output = AnswerOutput
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             branch_finish = create_tool_call(
                 "__finish__",
                 {"verified": "true", "explanation": "Sky is blue confirmed"},
@@ -277,7 +277,7 @@ class TestBranchExecution:
 
             mod = Parent()
             # Execute branch directly
-            result, content = mod._execute_branch(FactCheckBranch, "end_result", claim="The sky is blue")
+            result, content = await mod._execute_branch(FactCheckBranch, "end_result", claim="The sky is blue")
 
             assert result.verified is True
             assert result.explanation == "Sky is blue confirmed"
@@ -285,7 +285,7 @@ class TestBranchExecution:
             assert "<verified>true</verified>" in content
             assert "<explanation>Sky is blue confirmed</explanation>" in content
 
-    def test_branch_inherits_parent_history(self):
+    async def test_branch_inherits_parent_history(self):
         """Test that branch receives parent history context."""
         class Parent(Module):
             model = "test-model"
@@ -293,7 +293,7 @@ class TestBranchExecution:
             final_output = AnswerOutput
             max_steps = 3
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             branch_call = create_tool_call(
                 "branch",
                 {"name": "FactCheckBranch", "claim": "Test claim"},
@@ -325,7 +325,7 @@ class TestBranchExecution:
             mock_completion.side_effect = capture_calls
 
             mod = Parent()
-            mod()
+            await mod()
 
             # The branch call (2nd) should have inherited history
             branch_messages = call_messages[1]
@@ -334,7 +334,7 @@ class TestBranchExecution:
             assert roles[0] == "system"  # Branch's own system prompt
             assert "user" in roles  # At least one user message (inherited + branch input)
 
-    def test_branch_gets_own_system_prompt(self):
+    async def test_branch_gets_own_system_prompt(self):
         """Test that branch uses its own system prompt, not parent's."""
         class Parent(Module):
             """Parent system prompt."""
@@ -342,7 +342,7 @@ class TestBranchExecution:
             branches = [FactCheckBranch]
             final_output = AnswerOutput
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             branch_finish = create_tool_call(
                 "__finish__",
                 {"verified": "true", "explanation": "OK"},
@@ -356,7 +356,7 @@ class TestBranchExecution:
                 {"role": "user", "content": "test"}
             ]
 
-            result, _ = mod._execute_branch(FactCheckBranch, "end_result", claim="test")
+            result, _ = await mod._execute_branch(FactCheckBranch, "end_result", claim="test")
 
             # Check that the branch's LLM call used the branch's system prompt
             call_kwargs = mock_completion.call_args.kwargs
@@ -388,7 +388,7 @@ class TestMergeStrategies:
         content = mod._merge_end_result(None)
         assert "<status>completed</status>" in content
 
-    def test_merge_summarize(self):
+    async def test_merge_summarize(self):
         class Parent(Module):
             model = "test-model"
             final_output = AnswerOutput
@@ -404,12 +404,12 @@ class TestMergeStrategies:
 
         result = VerificationOutput(verified=True, explanation="Confirmed")
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             mock_completion.return_value = MockResponse(
                 content="The branch verified the claim was true."
             )
 
-            content = mod._merge_summarize(branch_instance, result)
+            content = await mod._merge_summarize(branch_instance, result)
 
             assert "Branch summary:" in content
             assert "The branch verified" in content
@@ -422,7 +422,7 @@ class TestMergeStrategies:
 # =============================================================================
 
 class TestCallParentTool:
-    def test_call_parent_tool_list_mode(self):
+    async def test_call_parent_tool_list_mode(self):
         @tool
         def search(query: str) -> str:
             """Search for information."""
@@ -440,13 +440,13 @@ class TestCallParentTool:
         call_parent_tool_func = mod._generate_parent_tool(mod._collected_tools)
 
         # List mode
-        result = json.loads(call_parent_tool_func())
+        result = json.loads(await call_parent_tool_func())
         tool_names = [t["name"] for t in result]
         assert "search" in tool_names
         assert "__finish__" not in tool_names
         assert "branch" not in tool_names
 
-    def test_call_parent_tool_execution(self):
+    async def test_call_parent_tool_execution(self):
         @tool
         def search(query: str) -> str:
             """Search for information."""
@@ -462,10 +462,10 @@ class TestCallParentTool:
         call_parent_tool_func = mod._generate_parent_tool(mod._collected_tools)
 
         # Execute search through call_parent_tool
-        result = call_parent_tool_func(name="search", query="test query")
+        result = await call_parent_tool_func(name="search", query="test query")
         assert result == "Results for: test query"
 
-    def test_call_parent_tool_not_found(self):
+    async def test_call_parent_tool_not_found(self):
         class Parent(Module):
             model = "test-model"
             branches = [FactCheckBranch]
@@ -475,9 +475,9 @@ class TestCallParentTool:
         call_parent_tool_func = mod._generate_parent_tool(mod._collected_tools)
 
         with pytest.raises(BranchError, match="not found"):
-            call_parent_tool_func(name="nonexistent")
+            await call_parent_tool_func(name="nonexistent")
 
-    def test_call_parent_tool_available_in_branch(self):
+    async def test_call_parent_tool_available_in_branch(self):
         """Test that call_parent_tool is auto-added to branch during execution."""
         @tool
         def search(query: str) -> str:
@@ -490,7 +490,7 @@ class TestCallParentTool:
             branches = [FactCheckBranch]
             final_output = AnswerOutput
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             branch_finish = create_tool_call(
                 "__finish__",
                 {"verified": "true", "explanation": "OK"},
@@ -511,7 +511,7 @@ class TestCallParentTool:
                 {"role": "system", "content": "Parent"},
                 {"role": "user", "content": "test"}
             ]
-            mod._execute_branch(FactCheckBranch, "end_result", claim="test")
+            await mod._execute_branch(FactCheckBranch, "end_result", claim="test")
 
     def test_call_parent_tool_schema(self):
         @tool
@@ -536,13 +536,13 @@ class TestCallParentTool:
 # =============================================================================
 
 class TestManualBranching:
-    def test_manual_branch_returns_result(self):
+    async def test_manual_branch_returns_result(self):
         class Parent(Module):
             model = "test-model"
             final_output = AnswerOutput
             max_steps = 3
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             branch_finish = create_tool_call(
                 "__finish__",
                 {"verified": "true", "explanation": "Confirmed"},
@@ -555,18 +555,18 @@ class TestManualBranching:
                 {"role": "system", "content": "Parent"},
                 {"role": "user", "content": "test"}
             ]
-            result = mod.branch(FactCheckBranch, claim="The sky is blue")
+            result = await mod.branch(FactCheckBranch, claim="The sky is blue")
 
             assert isinstance(result, VerificationOutput)
             assert result.verified is True
 
-    def test_manual_branch_injects_to_history(self):
+    async def test_manual_branch_injects_to_history(self):
         class Parent(Module):
             model = "test-model"
             final_output = AnswerOutput
             max_steps = 3
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             branch_finish = create_tool_call(
                 "__finish__",
                 {"verified": "true", "explanation": "OK"},
@@ -580,19 +580,19 @@ class TestManualBranching:
                 {"role": "user", "content": "test"}
             ]
             history_len_before = len(mod.history)
-            mod.branch(FactCheckBranch, claim="test")
+            await mod.branch(FactCheckBranch, claim="test")
 
             # History should have a new entry with branch result
             assert len(mod.history) > history_len_before
             last_msg = mod.history[-1]
             assert "[Branch Result]" in last_msg["content"]
 
-    def test_manual_branch_with_merge_strategy(self):
+    async def test_manual_branch_with_merge_strategy(self):
         class Parent(Module):
             model = "test-model"
             final_output = AnswerOutput
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             branch_finish = create_tool_call(
                 "__finish__",
                 {"verified": "true", "explanation": "OK"},
@@ -609,19 +609,19 @@ class TestManualBranching:
                 {"role": "system", "content": "Parent"},
                 {"role": "user", "content": "test"}
             ]
-            result = mod.branch(FactCheckBranch, merge="summarize", claim="test")
+            result = await mod.branch(FactCheckBranch, merge="summarize", claim="test")
 
             assert result.verified is True
             last_msg = mod.history[-1]
             assert "Branch summary:" in last_msg["content"]
 
-    def test_manual_branch_not_in_branches_dict(self):
+    async def test_manual_branch_not_in_branches_dict(self):
         """Manual branching doesn't require the class to be in self.branches."""
         class Parent(Module):
             model = "test-model"
             final_output = AnswerOutput
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             branch_finish = create_tool_call(
                 "__finish__",
                 {"verified": "true", "explanation": "OK"},
@@ -635,7 +635,7 @@ class TestManualBranching:
                 {"role": "user", "content": "test"}
             ]
             # FactCheckBranch is NOT in self.branches, but manual branch still works
-            result = mod.branch(FactCheckBranch, claim="test")
+            result = await mod.branch(FactCheckBranch, claim="test")
             assert result.verified is True
 
 
@@ -644,7 +644,7 @@ class TestManualBranching:
 # =============================================================================
 
 class TestBranchErrors:
-    def test_branch_execution_failure_raises_branch_error(self):
+    async def test_branch_execution_failure_raises_branch_error(self):
         class FailingBranch(Module):
             """This branch will fail."""
             model = "test-model"
@@ -656,7 +656,7 @@ class TestBranchErrors:
             branches = [FailingBranch]
             final_output = AnswerOutput
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             # Make the branch's LLM call fail
             mock_completion.side_effect = Exception("LLM call failed")
 
@@ -666,7 +666,7 @@ class TestBranchErrors:
                 {"role": "user", "content": "test"}
             ]
             with pytest.raises(BranchError, match="Branch execution failed"):
-                mod._execute_branch(FailingBranch, "end_result", claim="test")
+                await mod._execute_branch(FailingBranch, "end_result", claim="test")
 
 
 # =============================================================================
@@ -693,7 +693,7 @@ class TestNestedBranching:
         tool_names = [t.__name__ for t in outer._collected_tools]
         assert "branch" in tool_names
 
-    def test_nested_branch_parent_tool_accesses_immediate_parent(self):
+    async def test_nested_branch_parent_tool_accesses_immediate_parent(self):
         """Nested branch's call_parent_tool accesses the immediate parent only."""
         @tool
         def outer_search(query: str) -> str:
@@ -728,7 +728,7 @@ class TestNestedBranching:
         # Build call_parent_tool for OuterBranch from Parent's tools
         parent = Parent()
         outer_parent_tool = parent._generate_parent_tool(parent._collected_tools)
-        result = json.loads(outer_parent_tool())
+        result = json.loads(await outer_parent_tool())
         names = [t["name"] for t in result]
         assert "outer_search" in names
         assert "inner_search" not in names
@@ -739,7 +739,7 @@ class TestNestedBranching:
 # =============================================================================
 
 class TestBranchMultiTurn:
-    def test_multi_turn_branch_execution(self):
+    async def test_multi_turn_branch_execution(self):
         """Test branch that runs a multi-step agentic loop."""
         @tool
         def verify(claim: str) -> str:
@@ -759,7 +759,7 @@ class TestBranchMultiTurn:
             branches = [MultiStepBranch]
             final_output = AnswerOutput
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             # Branch step 1: call verify
             verify_call = create_tool_call("verify", {"claim": "test"}, "call_v")
             # Branch step 2: call __finish__
@@ -779,7 +779,7 @@ class TestBranchMultiTurn:
                 {"role": "system", "content": "Parent"},
                 {"role": "user", "content": "test"}
             ]
-            result, content = mod._execute_branch(MultiStepBranch, "end_result", claim="test claim")
+            result, content = await mod._execute_branch(MultiStepBranch, "end_result", claim="test claim")
 
             assert result.verified is True
             assert result.explanation == "Verified via tool"
@@ -790,7 +790,7 @@ class TestBranchMultiTurn:
 # =============================================================================
 
 class TestBranchInAgenticLoop:
-    def test_branch_result_returned_as_tool_result(self):
+    async def test_branch_result_returned_as_tool_result(self):
         """Test that branch results flow back properly in the parent loop."""
         class Parent(Module):
             model = "test-model"
@@ -798,7 +798,7 @@ class TestBranchInAgenticLoop:
             final_output = AnswerOutput
             max_steps = 5
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             # Parent step 1: calls branch
             branch_call = create_tool_call(
                 "branch",
@@ -825,7 +825,7 @@ class TestBranchInAgenticLoop:
             ]
 
             mod = Parent()
-            result = mod()
+            result = await mod()
 
             assert result.answer == "Earth is confirmed round"
 
@@ -878,13 +878,13 @@ class TestFormatBranchHistory:
 # =============================================================================
 
 class TestBranchNoInitialInput:
-    def test_branch_without_initial_input(self):
+    async def test_branch_without_initial_input(self):
         class Parent(Module):
             model = "test-model"
             branches = [NoBranchInput]
             final_output = AnswerOutput
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             branch_finish = create_tool_call(
                 "__finish__",
                 {"answer": "Simple answer"},
@@ -897,7 +897,7 @@ class TestBranchNoInitialInput:
                 {"role": "system", "content": "Parent"},
                 {"role": "user", "content": "test"}
             ]
-            result, _ = mod._execute_branch(NoBranchInput, "end_result")
+            result, _ = await mod._execute_branch(NoBranchInput, "end_result")
             assert result.answer == "Simple answer"
 
 
@@ -906,7 +906,7 @@ class TestBranchNoInitialInput:
 # =============================================================================
 
 class TestBranchNoFinalOutputFallback:
-    def test_end_result_falls_back_to_summarize_when_no_final_output(self):
+    async def test_end_result_falls_back_to_summarize_when_no_final_output(self):
         """When a branch has no final_output and merge='end_result',
         it should auto-fallback to 'summarize' instead of returning None."""
 
@@ -921,7 +921,7 @@ class TestBranchNoFinalOutputFallback:
             branches = [NoOutputBranch]
             final_output = AnswerOutput
 
-        with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+        with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
             # Branch calls __finish__ with no args (no final_output → returns None)
             finish_call = create_tool_call("__finish__", {}, "call_fin")
             mock_completion.return_value = MockResponse(tool_calls=[finish_call])
@@ -933,8 +933,11 @@ class TestBranchNoFinalOutputFallback:
             ]
 
             # Patch _merge_summarize to verify it gets called
-            with patch.object(mod, '_merge_summarize', return_value="Branch summary:\nDid research.\n\nFinal result:\nNone") as mock_summarize:
-                result, merged = mod._execute_branch(NoOutputBranch, "end_result")
+            async def mock_merge_summarize(*args, **kwargs):
+                return "Branch summary:\nDid research.\n\nFinal result:\nNone"
+
+            with patch.object(mod, '_merge_summarize', side_effect=mock_merge_summarize) as mock_summarize:
+                result, merged = await mod._execute_branch(NoOutputBranch, "end_result")
 
                 # result should be None (branch has no final_output)
                 assert result is None

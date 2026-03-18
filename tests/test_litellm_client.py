@@ -1,16 +1,16 @@
 """Tests for LiteLLM client configuration."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from pydantic import BaseModel
 
 from acorn.llm.litellm_client import call_llm, _handle_streaming_response, _parse_partial_json, _extract_embedded_tool_calls, _response_to_dict, _translate_model_to_litellm
 from acorn.types import StreamChunk
 
 
-def test_call_llm_with_string_model():
+async def test_call_llm_with_string_model():
     """Test call_llm with string model."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -18,7 +18,7 @@ def test_call_llm_with_string_model():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4"
         )
@@ -28,9 +28,9 @@ def test_call_llm_with_string_model():
         assert call_args.kwargs["model"] == "gpt-4"
 
 
-def test_call_llm_with_dict_model_basic():
+async def test_call_llm_with_dict_model_basic():
     """Test call_llm with dict model containing only id."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -38,7 +38,7 @@ def test_call_llm_with_dict_model_basic():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model={"id": "anthropic/claude-3-5-sonnet-20241022"}
         )
@@ -48,9 +48,9 @@ def test_call_llm_with_dict_model_basic():
         assert call_args.kwargs["model"] == "anthropic/claude-3-5-sonnet-20241022"
 
 
-def test_call_llm_with_vertex_parameters():
+async def test_call_llm_with_vertex_parameters():
     """Test call_llm with Vertex AI parameters."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -58,7 +58,7 @@ def test_call_llm_with_vertex_parameters():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model={
                 "id": "vertex_ai/gemini-pro",
@@ -74,9 +74,9 @@ def test_call_llm_with_vertex_parameters():
         assert call_args.kwargs["vertex_credentials"] == "path/to/creds.json"
 
 
-def test_call_llm_with_reasoning_true():
+async def test_call_llm_with_reasoning_true():
     """Test call_llm with reasoning=True (should map to medium)."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -84,7 +84,7 @@ def test_call_llm_with_reasoning_true():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model={"id": "gpt-4", "reasoning": True}
         )
@@ -94,9 +94,9 @@ def test_call_llm_with_reasoning_true():
         assert call_args.kwargs["reasoning_effort"] == "medium"
 
 
-def test_call_llm_with_reasoning_low():
+async def test_call_llm_with_reasoning_low():
     """Test call_llm with reasoning='low'."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -104,7 +104,7 @@ def test_call_llm_with_reasoning_low():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model={"id": "gpt-4", "reasoning": "low"}
         )
@@ -114,9 +114,9 @@ def test_call_llm_with_reasoning_low():
         assert call_args.kwargs["reasoning_effort"] == "low"
 
 
-def test_call_llm_with_reasoning_high():
+async def test_call_llm_with_reasoning_high():
     """Test call_llm with reasoning='high'."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -124,7 +124,7 @@ def test_call_llm_with_reasoning_high():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model={"id": "gpt-4", "reasoning": "high"}
         )
@@ -134,9 +134,9 @@ def test_call_llm_with_reasoning_high():
         assert call_args.kwargs["reasoning_effort"] == "high"
 
 
-def test_call_llm_with_all_parameters():
+async def test_call_llm_with_all_parameters():
     """Test call_llm with all model parameters."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -144,7 +144,7 @@ def test_call_llm_with_all_parameters():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model={
                 "id": "vertex_ai/gemini-pro",
@@ -172,11 +172,11 @@ def create_tool_delta_chunk(idx, tool_id, name=None, args_delta=""):
     """Helper to create streaming chunk with tool delta."""
     chunk = MagicMock()
     chunk.choices = [MagicMock()]
-    
+
     delta = MagicMock()
     tc_delta = MagicMock()
     tc_delta.index = idx
-    
+
     if name:
         tc_delta.id = tool_id
         tc_delta.function = MagicMock()
@@ -192,12 +192,12 @@ def create_tool_delta_chunk(idx, tool_id, name=None, args_delta=""):
         tc_delta.function = MagicMock()
         tc_delta.function.name = None
         tc_delta.function.arguments = ""
-    
+
     delta.content = None
     delta.tool_calls = [tc_delta]
     chunk.choices[0].delta = delta
     chunk.choices[0].finish_reason = None
-    
+
     return chunk
 
 
@@ -212,25 +212,25 @@ def create_finish_chunk():
     return chunk
 
 
-def test_handle_streaming_response_with_partial():
+async def test_handle_streaming_response_with_partial():
     """Test _handle_streaming_response creates Partial instances for __finish__."""
     collected_chunks = []
-    
+
     def callback(chunk):
         collected_chunks.append(chunk)
-    
+
     # Mock streaming response with __finish__ tool call
-    def mock_stream():
+    async def mock_stream():
         yield create_tool_delta_chunk(0, "call_1", "__finish__", "")
         yield create_tool_delta_chunk(0, None, None, '{"result": "test", "count": 5}')
         yield create_finish_chunk()
-    
-    result = _handle_streaming_response(
+
+    result = await _handle_streaming_response(
         mock_stream(),
         callback,
         final_output_schema=TestOutput
     )
-    
+
     # Verify partial chunks were sent
     partial_chunks = [c for c in collected_chunks if c.partial]
     assert len(partial_chunks) >= 1
@@ -238,55 +238,55 @@ def test_handle_streaming_response_with_partial():
     assert partial_chunks[0].partial.count == 5
 
 
-def test_handle_streaming_response_without_schema():
+async def test_handle_streaming_response_without_schema():
     """Test streaming without schema sends tool_call deltas instead of partial."""
     collected_chunks = []
-    
+
     def callback(chunk):
         collected_chunks.append(chunk)
-    
-    def mock_stream():
+
+    async def mock_stream():
         yield create_tool_delta_chunk(0, "call_1", "__finish__", "")
         yield create_tool_delta_chunk(0, None, None, '{"result": "test"}')
         yield create_finish_chunk()
-    
-    result = _handle_streaming_response(
+
+    result = await _handle_streaming_response(
         mock_stream(),
         callback,
         final_output_schema=None
     )
-    
+
     # Should NOT have partial chunks (no schema provided)
     partial_chunks = [c for c in collected_chunks if c.partial]
     assert len(partial_chunks) == 0
-    
+
     # Should have tool_call chunks instead
     tool_chunks = [c for c in collected_chunks if c.tool_call]
     assert len(tool_chunks) >= 1
 
 
-def test_handle_streaming_response_non_finish_tool():
+async def test_handle_streaming_response_non_finish_tool():
     """Test streaming non-__finish__ tools don't create partial instances."""
     collected_chunks = []
-    
+
     def callback(chunk):
         collected_chunks.append(chunk)
-    
-    def mock_stream():
+
+    async def mock_stream():
         yield create_tool_delta_chunk(0, "call_1", "some_tool", "")
         yield create_tool_delta_chunk(0, None, None, '{"param": "value"}')
         yield create_finish_chunk()
-    
-    result = _handle_streaming_response(
+
+    result = await _handle_streaming_response(
         mock_stream(),
         callback,
         final_output_schema=TestOutput
     )
-    
+
     # Should NOT have partial chunks (not __finish__)
     partial_chunks = [c for c in collected_chunks if c.partial]
     assert len(partial_chunks) == 0
-    
+
     # Should have tool_call chunks
     tool_chunks = [c for c in collected_chunks if c.tool_call]
     assert len(tool_chunks) >= 1
@@ -298,50 +298,50 @@ def test_parse_partial_json_unit():
     result = _parse_partial_json('{"result": "test", "count": 5}', TestOutput)
     assert result.result == "test"
     assert result.count == 5
-    
+
     # Incomplete JSON
     result = _parse_partial_json('{"result": "test"', TestOutput)
     assert result.result == "test"
     assert result.count is None
-    
+
     # Empty string
     result = _parse_partial_json("", TestOutput)
     assert result is None
 
 
-def test_streaming_with_progressive_json():
+async def test_streaming_with_progressive_json():
     """Test that partial JSON is parsed progressively during streaming."""
     collected_chunks = []
-    
+
     def callback(chunk):
         collected_chunks.append(chunk)
-    
-    def mock_stream():
+
+    async def mock_stream():
         yield create_tool_delta_chunk(0, "call_1", "__finish__", "")
         yield create_tool_delta_chunk(0, None, None, '{"result"')
         yield create_tool_delta_chunk(0, None, None, ': "test"')
         yield create_tool_delta_chunk(0, None, None, ', "count": 5}')
         yield create_finish_chunk()
-    
-    result = _handle_streaming_response(
+
+    result = await _handle_streaming_response(
         mock_stream(),
         callback,
         final_output_schema=TestOutput
     )
-    
+
     # Should have multiple partial updates
     partial_chunks = [c for c in collected_chunks if c.partial]
     assert len(partial_chunks) >= 1
-    
+
     # Last partial should have both fields
     last_partial = partial_chunks[-1].partial
     assert last_partial.result == "test"
     assert last_partial.count == 5
 
 
-def test_call_llm_with_cache_none():
+async def test_call_llm_with_cache_none():
     """Test call_llm with cache=None (no parameter added)."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -349,7 +349,7 @@ def test_call_llm_with_cache_none():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             cache=None
@@ -360,9 +360,9 @@ def test_call_llm_with_cache_none():
         assert "cache_control_injection_points" not in call_args.kwargs
 
 
-def test_call_llm_with_cache_false():
+async def test_call_llm_with_cache_false():
     """Test call_llm with cache=False (no parameter added)."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -370,7 +370,7 @@ def test_call_llm_with_cache_false():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             cache=False
@@ -381,9 +381,9 @@ def test_call_llm_with_cache_false():
         assert "cache_control_injection_points" not in call_args.kwargs
 
 
-def test_call_llm_with_cache_true():
+async def test_call_llm_with_cache_true():
     """Test call_llm with cache=True (adds default array)."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -391,7 +391,7 @@ def test_call_llm_with_cache_true():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             cache=True
@@ -405,9 +405,9 @@ def test_call_llm_with_cache_true():
         ]
 
 
-def test_call_llm_with_cache_custom():
+async def test_call_llm_with_cache_custom():
     """Test call_llm with custom cache array."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -416,7 +416,7 @@ def test_call_llm_with_cache_custom():
         )
 
         custom_cache = [{"location": "message", "role": "system"}]
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             cache=custom_cache
@@ -623,9 +623,9 @@ def test_translate_model_dict_reasoning_string():
 
 # Tests for model_fallbacks in call_llm
 
-def test_call_llm_with_model_fallbacks():
+async def test_call_llm_with_model_fallbacks():
     """Test that model_fallbacks are translated and passed as fallbacks kwarg."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -633,7 +633,7 @@ def test_call_llm_with_model_fallbacks():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             model_fallbacks=[
@@ -657,9 +657,9 @@ def test_call_llm_with_model_fallbacks():
         assert fallbacks[1]["reasoning_effort"] is None
 
 
-def test_call_llm_without_model_fallbacks():
+async def test_call_llm_without_model_fallbacks():
     """Test that no fallbacks kwarg is added when model_fallbacks is None."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -667,7 +667,7 @@ def test_call_llm_without_model_fallbacks():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
         )
@@ -676,9 +676,9 @@ def test_call_llm_without_model_fallbacks():
         assert "fallbacks" not in call_args.kwargs
 
 
-def test_call_llm_with_empty_model_fallbacks():
+async def test_call_llm_with_empty_model_fallbacks():
     """Test that empty list model_fallbacks doesn't add fallbacks kwarg."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -686,7 +686,7 @@ def test_call_llm_with_empty_model_fallbacks():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             model_fallbacks=[],
@@ -698,9 +698,9 @@ def test_call_llm_with_empty_model_fallbacks():
 
 # Tests for new completion parameters
 
-def test_call_llm_max_tokens_none_by_default():
+async def test_call_llm_max_tokens_none_by_default():
     """Test that max_tokens is not added when None."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -708,7 +708,7 @@ def test_call_llm_max_tokens_none_by_default():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
         )
@@ -717,9 +717,9 @@ def test_call_llm_max_tokens_none_by_default():
         assert "max_tokens" not in call_args.kwargs
 
 
-def test_call_llm_max_tokens_passed_when_set():
+async def test_call_llm_max_tokens_passed_when_set():
     """Test that max_tokens is passed when explicitly set."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -727,7 +727,7 @@ def test_call_llm_max_tokens_passed_when_set():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             max_tokens=2048,
@@ -737,9 +737,9 @@ def test_call_llm_max_tokens_passed_when_set():
         assert call_args.kwargs["max_tokens"] == 2048
 
 
-def test_call_llm_max_completion_tokens():
+async def test_call_llm_max_completion_tokens():
     """Test that max_completion_tokens is passed through."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -747,7 +747,7 @@ def test_call_llm_max_completion_tokens():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             max_completion_tokens=1024,
@@ -757,9 +757,9 @@ def test_call_llm_max_completion_tokens():
         assert call_args.kwargs["max_completion_tokens"] == 1024
 
 
-def test_call_llm_top_p():
+async def test_call_llm_top_p():
     """Test that top_p is passed through."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -767,7 +767,7 @@ def test_call_llm_top_p():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             top_p=0.9,
@@ -777,9 +777,9 @@ def test_call_llm_top_p():
         assert call_args.kwargs["top_p"] == 0.9
 
 
-def test_call_llm_stop():
+async def test_call_llm_stop():
     """Test that stop is passed through."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -787,7 +787,7 @@ def test_call_llm_stop():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             stop=["\n", "END"],
@@ -797,9 +797,9 @@ def test_call_llm_stop():
         assert call_args.kwargs["stop"] == ["\n", "END"]
 
 
-def test_call_llm_presence_penalty():
+async def test_call_llm_presence_penalty():
     """Test that presence_penalty is passed through."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -807,7 +807,7 @@ def test_call_llm_presence_penalty():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             presence_penalty=0.6,
@@ -817,9 +817,9 @@ def test_call_llm_presence_penalty():
         assert call_args.kwargs["presence_penalty"] == 0.6
 
 
-def test_call_llm_stream_options():
+async def test_call_llm_stream_options():
     """Test that stream_options is passed through."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -827,7 +827,7 @@ def test_call_llm_stream_options():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
             stream_options={"include_usage": True},
@@ -837,9 +837,9 @@ def test_call_llm_stream_options():
         assert call_args.kwargs["stream_options"] == {"include_usage": True}
 
 
-def test_call_llm_none_params_not_added():
+async def test_call_llm_none_params_not_added():
     """Test that None-valued new params are not added to kwargs."""
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(
                 message=MagicMock(content="test", tool_calls=[]),
@@ -847,7 +847,7 @@ def test_call_llm_none_params_not_added():
             )]
         )
 
-        call_llm(
+        await call_llm(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
         )

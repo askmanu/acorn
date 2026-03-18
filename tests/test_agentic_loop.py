@@ -2,7 +2,7 @@
 
 import pytest
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from pydantic import BaseModel
 
 from acorn import Module, tool
@@ -31,7 +31,7 @@ def create_tool_call(name: str, arguments: dict, call_id: str = "call_123"):
     return tc
 
 
-def test_agentic_loop_basic():
+async def test_agentic_loop_basic():
     """Test basic multi-turn execution."""
     call_count = 0
 
@@ -49,7 +49,7 @@ def test_agentic_loop_basic():
         tools = [search]
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Step 1: Call search tool
         search_call = create_tool_call("search", {"query": "test"}, "call_1")
 
@@ -62,13 +62,13 @@ def test_agentic_loop_basic():
         ]
 
         mod = AgenticModule()
-        result = mod()
+        result = await mod()
 
         assert result.answer == "Final answer"
         assert mock_completion.call_count == 2
 
 
-def test_agentic_loop_multiple_tools():
+async def test_agentic_loop_multiple_tools():
     """Test loop with multiple tool calls."""
     @tool
     def calculate(x: int, y: int) -> int:
@@ -89,7 +89,7 @@ def test_agentic_loop_multiple_tools():
         tools = [calculate, format_result]
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Step 1: Calculate
         calc_call = create_tool_call("calculate", {"x": 5, "y": 3}, "call_1")
 
@@ -106,13 +106,13 @@ def test_agentic_loop_multiple_tools():
         ]
 
         mod = CalculatorModule()
-        result = mod()
+        result = await mod()
 
         assert result.formatted == "Result is 8"
         assert mock_completion.call_count == 3
 
 
-def test_agentic_loop_tool_error():
+async def test_agentic_loop_tool_error():
     """Test handling of tool execution errors."""
     @tool
     def failing_tool() -> str:
@@ -128,7 +128,7 @@ def test_agentic_loop_tool_error():
         tools = [failing_tool]
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Step 1: Call failing tool
         fail_call = create_tool_call("failing_tool", {}, "call_1")
 
@@ -141,7 +141,7 @@ def test_agentic_loop_tool_error():
         ]
 
         mod = ErrorModule()
-        result = mod()
+        result = await mod()
 
         assert result.result == "recovered"
 
@@ -157,7 +157,7 @@ def test_agentic_loop_tool_error():
         assert "Tool error" in tool_messages[0]["content"]
 
 
-def test_agentic_loop_max_steps_forced_termination_tool_choice():
+async def test_agentic_loop_max_steps_forced_termination_tool_choice():
     """Test forced termination at max_steps using tool_choice."""
     @tool
     def endless_tool() -> str:
@@ -173,7 +173,7 @@ def test_agentic_loop_max_steps_forced_termination_tool_choice():
         tools = [endless_tool]
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # First 2 steps: call endless_tool
         endless_call = create_tool_call("endless_tool", {}, "call_1")
 
@@ -188,7 +188,7 @@ def test_agentic_loop_max_steps_forced_termination_tool_choice():
         ]
 
         mod = EndlessModule()
-        result = mod()
+        result = await mod()
 
         # Should have forced termination
         assert result.result == "forced output"
@@ -201,7 +201,7 @@ def test_agentic_loop_max_steps_forced_termination_tool_choice():
         assert last_call_kwargs["tool_choice"]["function"]["name"] == "__finish__"
 
 
-def test_agentic_loop_max_steps_forced_termination_raises_error():
+async def test_agentic_loop_max_steps_forced_termination_raises_error():
     """Test forced termination raises AcornError when tool_choice fails."""
     @tool
     def endless_tool() -> str:
@@ -217,12 +217,12 @@ def test_agentic_loop_max_steps_forced_termination_raises_error():
         tools = [endless_tool]
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # First 2 steps: call endless_tool
         endless_call = create_tool_call("endless_tool", {}, "call_1")
 
         # Mock responses
-        def mock_side_effect(*args, **kwargs):
+        async def mock_side_effect(*args, **kwargs):
             # If tool_choice is present, simulate tool_choice not supported
             if "tool_choice" in kwargs:
                 raise Exception("tool_choice not supported")
@@ -235,10 +235,10 @@ def test_agentic_loop_max_steps_forced_termination_raises_error():
         mod = EndlessModule()
 
         with pytest.raises(AcornError, match="reached max_steps"):
-            mod()
+            await mod()
 
 
-def test_agentic_loop_history_accumulates():
+async def test_agentic_loop_history_accumulates():
     """Test that history accumulates correctly."""
     @tool
     def get_data() -> str:
@@ -254,7 +254,7 @@ def test_agentic_loop_history_accumulates():
         tools = [get_data]
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         data_call = create_tool_call("get_data", {}, "call_1")
         finish_call = create_tool_call("__finish__", {"result": "done"}, "call_2")
 
@@ -264,7 +264,7 @@ def test_agentic_loop_history_accumulates():
         ]
 
         mod = HistoryModule()
-        result = mod()
+        result = await mod()
 
         # Check history grew
         assert len(mod.history) > 2  # system + user + assistant + tool result + assistant
@@ -274,7 +274,7 @@ def test_agentic_loop_history_accumulates():
         assert mod.history[1]["role"] == "user"
 
 
-def test_agentic_loop_on_step_callback():
+async def test_agentic_loop_on_step_callback():
     """Test on_step callback is called."""
     step_count = 0
 
@@ -299,7 +299,7 @@ def test_agentic_loop_on_step_callback():
             assert step.model == self.model
             return step
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         tool_call = create_tool_call("my_tool", {}, "call_1")
         finish_call = create_tool_call("__finish__", {"result": "done"}, "call_2")
 
@@ -309,13 +309,13 @@ def test_agentic_loop_on_step_callback():
         ]
 
         mod = CallbackModule()
-        result = mod()
+        result = await mod()
 
         # on_step should have been called once (not for __finish__ step)
         assert step_count == 1
 
 
-def test_agentic_loop_step_finish():
+async def test_agentic_loop_step_finish():
     """Test step.finish() terminates loop early."""
     @tool
     def my_tool() -> str:
@@ -337,19 +337,19 @@ def test_agentic_loop_step_finish():
                 step.finish(result="early exit")
             return step
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         tool_call = create_tool_call("my_tool", {}, "call_1")
         mock_completion.return_value = MockResponse(tool_calls=[tool_call])
 
         mod = EarlyExitModule()
-        result = mod()
+        result = await mod()
 
         assert result.result == "early exit"
         # Should only call LLM once
         assert mock_completion.call_count == 1
 
 
-def test_agentic_loop_add_tool():
+async def test_agentic_loop_add_tool():
     """Test adding tools dynamically via on_step."""
     @tool
     def initial_tool() -> str:
@@ -376,7 +376,7 @@ def test_agentic_loop_add_tool():
                 step.add_tool(added_tool)
             return step
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Step 1: Use initial tool
         initial_call = create_tool_call("initial_tool", {}, "call_1")
 
@@ -393,12 +393,12 @@ def test_agentic_loop_add_tool():
         ]
 
         mod = DynamicToolModule()
-        result = mod()
+        result = await mod()
 
         assert result.result == "done"
 
 
-def test_agentic_loop_remove_tool():
+async def test_agentic_loop_remove_tool():
     """Test removing tools dynamically via on_step."""
     @tool
     def tool_to_remove() -> str:
@@ -424,7 +424,7 @@ def test_agentic_loop_remove_tool():
                 step.remove_tool("tool_to_remove")
             return step
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Step 1: Use tool that will be removed
         temp_call = create_tool_call("tool_to_remove", {}, "call_1")
 
@@ -442,12 +442,12 @@ def test_agentic_loop_remove_tool():
         ]
 
         mod = RemoveToolModule()
-        result = mod()
+        result = await mod()
 
         assert result.result == "done"
 
 
-def test_agentic_loop_retries_on_no_tool_calls():
+async def test_agentic_loop_retries_on_no_tool_calls():
     """Test that agentic loop retries when model returns no tool calls."""
     @tool
     def search(query: str) -> str:
@@ -463,7 +463,7 @@ def test_agentic_loop_retries_on_no_tool_calls():
         tools = [search]
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Step 1: No tool calls (text only)
         # Step 2 (retry): Calls search tool
         # Step 3: Calls __finish__
@@ -477,7 +477,7 @@ def test_agentic_loop_retries_on_no_tool_calls():
         ]
 
         mod = RetryModule()
-        result = mod()
+        result = await mod()
 
         assert result.answer == "done"
         # Verify reminder message was appended to history
@@ -488,7 +488,7 @@ def test_agentic_loop_retries_on_no_tool_calls():
         assert len(reminder_msgs) == 1
 
 
-def test_agentic_loop_fails_after_max_retries_no_tool_calls():
+async def test_agentic_loop_fails_after_max_retries_no_tool_calls():
     """Test that agentic loop raises error after max_parse_retries with no tool calls."""
     @tool
     def search(query: str) -> str:
@@ -505,11 +505,11 @@ def test_agentic_loop_fails_after_max_retries_no_tool_calls():
         tools = [search]
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Always return no tool calls
         mock_completion.return_value = MockResponse(content="Just thinking...")
 
         mod = RetryFailModule()
 
         with pytest.raises(AcornError, match="No tool calls in agentic loop step after 2 retries"):
-            mod()
+            await mod()

@@ -2,7 +2,7 @@
 
 import pytest
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from pydantic import BaseModel
 
 from acorn import Module
@@ -160,7 +160,7 @@ def test_parse_partial_json_invalid_returns_empty_partial():
 # Integration Tests with Module Streaming
 
 
-def test_streaming_finish_with_partial_updates():
+async def test_streaming_finish_with_partial_updates():
     """Test that __finish__ calls generate partial updates during streaming."""
 
     collected_chunks = []
@@ -173,9 +173,9 @@ def test_streaming_finish_with_partial_updates():
         def on_stream(self, chunk):
             collected_chunks.append(chunk)
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Simulate streaming __finish__ arguments progressively
-        def streaming_response():
+        async def streaming_response():
             yield create_streaming_chunk_with_tool_delta(0, "call_1", "__finish__", "")
             yield create_streaming_chunk_with_tool_delta(0, None, None, '{"name"')
             yield create_streaming_chunk_with_tool_delta(0, None, None, ': "Alice"')
@@ -186,7 +186,7 @@ def test_streaming_finish_with_partial_updates():
         mock_completion.return_value = streaming_response()
 
         mod = TestModule()
-        result = mod()
+        result = await mod()
 
     # Verify partial instances were created
     partial_chunks = [c for c in collected_chunks if c.partial is not None]
@@ -195,7 +195,7 @@ def test_streaming_finish_with_partial_updates():
     assert len(partial_chunks) >= 1
 
 
-def test_streaming_finish_progressive_fields():
+async def test_streaming_finish_progressive_fields():
     """Test that partial fields appear progressively as JSON streams."""
 
     collected_chunks = []
@@ -209,9 +209,9 @@ def test_streaming_finish_progressive_fields():
         def on_stream(self, chunk):
             collected_chunks.append(chunk)
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Simulate streaming __finish__ with progressive field completion
-        def streaming_response():
+        async def streaming_response():
             # Start __finish__ call
             yield create_streaming_chunk_with_tool_delta(0, "call_1", "__finish__", "")
             # Stream opening brace and first field
@@ -223,7 +223,7 @@ def test_streaming_finish_progressive_fields():
         mock_completion.return_value = streaming_response()
 
         mod = TestModule()
-        result = mod()
+        result = await mod()
 
     # Verify we got partial chunks
     partial_chunks = [c for c in collected_chunks if c.partial is not None]
@@ -234,7 +234,7 @@ def test_streaming_finish_progressive_fields():
     assert last_partial.name == "Alice"
 
 
-def test_streaming_non_finish_tool_no_partial():
+async def test_streaming_non_finish_tool_no_partial():
     """Test that non-__finish__ tools don't generate partial updates."""
 
     collected_chunks = []
@@ -248,9 +248,9 @@ def test_streaming_non_finish_tool_no_partial():
         def on_stream(self, chunk):
             collected_chunks.append(chunk)
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
         # Simulate streaming a different tool (not __finish__)
-        def streaming_response():
+        async def streaming_response():
             yield create_streaming_chunk_with_tool_delta(0, "call_1", "some_other_tool", "")
             yield create_streaming_chunk_with_tool_delta(0, None, None, '{"param": "value"}')
             yield create_final_streaming_chunk()
@@ -261,7 +261,7 @@ def test_streaming_non_finish_tool_no_partial():
         # This should timeout or fail since no __finish__ is called
         # For this test, we just verify no partial chunks were generated
         try:
-            result = mod()
+            result = await mod()
         except:
             pass  # Expected to fail since no __finish__
 
@@ -270,7 +270,7 @@ def test_streaming_non_finish_tool_no_partial():
     assert len(partial_chunks) == 0
 
 
-def test_streaming_with_no_schema():
+async def test_streaming_with_no_schema():
     """Test that streaming without final_output schema doesn't break."""
 
     collected_chunks = []
@@ -284,8 +284,8 @@ def test_streaming_with_no_schema():
         def on_stream(self, chunk):
             collected_chunks.append(chunk)
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
-        def streaming_response():
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
+        async def streaming_response():
             yield create_streaming_chunk_with_tool_delta(0, "call_1", "__finish__", "")
             yield create_streaming_chunk_with_tool_delta(0, None, None, '{"result": "test"}')
             yield create_final_streaming_chunk()
@@ -294,7 +294,7 @@ def test_streaming_with_no_schema():
 
         mod = TestModuleNoSchema()
         try:
-            result = mod()
+            result = await mod()
         except:
             pass  # Expected to fail for other reasons
 
@@ -303,7 +303,7 @@ def test_streaming_with_no_schema():
     assert len(partial_chunks) == 0
 
 
-def test_partial_streaming_complex_types():
+async def test_partial_streaming_complex_types():
     """Test partial streaming with complex nested types."""
 
     collected_chunks = []
@@ -316,8 +316,8 @@ def test_partial_streaming_complex_types():
         def on_stream(self, chunk):
             collected_chunks.append(chunk)
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
-        def streaming_response():
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
+        async def streaming_response():
             yield create_streaming_chunk_with_tool_delta(0, "call_1", "__finish__", "")
             yield create_streaming_chunk_with_tool_delta(0, None, None, '{"title": "Test"')
             yield create_streaming_chunk_with_tool_delta(0, None, None, ', "count": 5')
@@ -328,7 +328,7 @@ def test_partial_streaming_complex_types():
         mock_completion.return_value = streaming_response()
 
         mod = TestModuleComplex()
-        result = mod()
+        result = await mod()
 
     # Verify progressive partial updates
     partial_chunks = [c for c in collected_chunks if c.partial is not None]
@@ -341,7 +341,7 @@ def test_partial_streaming_complex_types():
         assert last_partial.count == 5
 
 
-def test_streaming_done_chunk_sent():
+async def test_streaming_done_chunk_sent():
     """Test that final done=True chunk is sent after streaming completes."""
 
     collected_chunks = []
@@ -353,8 +353,8 @@ def test_streaming_done_chunk_sent():
         def on_stream(self, chunk):
             collected_chunks.append(chunk)
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
-        def streaming_response():
+    with patch('acorn.llm.litellm_client.litellm.acompletion', new_callable=AsyncMock) as mock_completion:
+        async def streaming_response():
             yield create_streaming_chunk_with_tool_delta(0, "call_1", "__finish__", "")
             yield create_streaming_chunk_with_tool_delta(0, None, None, '{"name": "Alice", "age": 30}')
             yield create_final_streaming_chunk()
@@ -362,7 +362,7 @@ def test_streaming_done_chunk_sent():
         mock_completion.return_value = streaming_response()
 
         mod = TestModule()
-        result = mod()
+        result = await mod()
 
     # Verify final done chunk was sent
     done_chunks = [c for c in collected_chunks if c.done]

@@ -27,7 +27,7 @@ class SentimentClassifier(Module):
     }
 
 
-def test_metadata_passed_to_litellm():
+async def test_metadata_passed_to_litellm():
     """Test that metadata is correctly passed to LiteLLM."""
 
     # Create a mock response that LiteLLM would return
@@ -45,15 +45,15 @@ def test_metadata_passed_to_litellm():
     mock_response.choices[0].message.tool_calls = [tool_call_mock]
     mock_response.choices[0].finish_reason = "tool_calls"
 
-    # Patch litellm.completion
-    with patch('litellm.completion', return_value=mock_response) as mock_completion:
+    # Patch litellm.acompletion
+    with patch('litellm.acompletion', return_value=mock_response) as mock_completion:
         classifier = SentimentClassifier()
-        result = classifier(text="This is great!")
+        result = await classifier(text="This is great!")
 
         # Verify the call was made
         assert mock_completion.called
 
-        # Get the kwargs passed to litellm.completion
+        # Get the kwargs passed to litellm.acompletion
         call_kwargs = mock_completion.call_args[1]
 
         # Verify metadata was included
@@ -69,7 +69,7 @@ def test_metadata_passed_to_litellm():
         assert result.confidence == 0.95
 
 
-def test_module_without_metadata():
+async def test_module_without_metadata():
     """Test that modules without metadata work as before."""
 
     class SimpleClassifier(Module):
@@ -94,15 +94,15 @@ def test_module_without_metadata():
     mock_response.choices[0].message.tool_calls = [tool_call_mock]
     mock_response.choices[0].finish_reason = "tool_calls"
 
-    # Patch litellm.completion
-    with patch('litellm.completion', return_value=mock_response) as mock_completion:
+    # Patch litellm.acompletion
+    with patch('litellm.acompletion', return_value=mock_response) as mock_completion:
         classifier = SimpleClassifier()
-        result = classifier(text="This is bad!")
+        result = await classifier(text="This is bad!")
 
         # Verify the call was made
         assert mock_completion.called
 
-        # Get the kwargs passed to litellm.completion
+        # Get the kwargs passed to litellm.acompletion
         call_kwargs = mock_completion.call_args[1]
 
         # Verify metadata is not in kwargs (since it's None, our code doesn't add it)
@@ -114,11 +114,12 @@ def test_module_without_metadata():
 
 
 if __name__ == "__main__":
+    import asyncio
     print("Running metadata tests...")
-    test_metadata_passed_to_litellm()
-    print("✓ Test 1 passed: Metadata is correctly passed to LiteLLM")
+    asyncio.run(test_metadata_passed_to_litellm())
+    print("Test 1 passed: Metadata is correctly passed to LiteLLM")
 
-    test_module_without_metadata()
-    print("✓ Test 2 passed: Modules without metadata work as before")
+    asyncio.run(test_module_without_metadata())
+    print("Test 2 passed: Modules without metadata work as before")
 
-    print("\nAll tests passed! ✓")
+    print("\nAll tests passed!")

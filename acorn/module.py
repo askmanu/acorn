@@ -1,8 +1,8 @@
 """Core module class for Acorn."""
 
+import asyncio
 import copy
 import json
-import inspect
 from pathlib import Path
 from typing import Any
 from pydantic import BaseModel
@@ -92,7 +92,10 @@ class Module:
         ...     initial_input = Input
         ...     final_output = Output
         >>> summarizer = Summarizer()
-        >>> result = summarizer(text="Long text...")
+        >>> result = await summarizer(text="Long text...")
+
+    Example (sync wrapper):
+        >>> result = summarizer.run(text="Long text...")
 
     Example (multi-turn without final_output):
         >>> class ToolExecutor(Module):
@@ -100,7 +103,7 @@ class Module:
         ...     tools = [log_action, save_data]
         ...     final_output = None  # No structured output
         >>> executor = ToolExecutor()
-        >>> result = executor()  # Returns None after executing tools
+        >>> result = await executor()  # Returns None after executing tools
         >>> assert result is None
     """
 
@@ -343,7 +346,7 @@ class Module:
                 raise ValueError(f"Duplicate branch class name: {name}")
             seen_names.add(name)
 
-    def __call__(self, **kwargs) -> BaseModel | None:
+    async def __call__(self, **kwargs) -> BaseModel | None:
         """Execute the module with provided inputs.
 
         Args:
@@ -357,11 +360,34 @@ class Module:
             ParseError: If output validation fails
         """
         if self.max_steps is None:
-            return self._single_turn(**kwargs)
+            return await self._single_turn(**kwargs)
         else:
-            return self._agentic_loop(**kwargs)
+            return await self._agentic_loop(**kwargs)
 
-    def _single_turn(self, **kwargs) -> BaseModel | None:
+    def run(self, **kwargs) -> BaseModel | None:
+        """Sync wrapper for async __call__.
+
+        Uses asyncio.run() when no event loop is running.
+        If called from within an existing event loop, creates a new loop
+        in a background thread.
+
+        Args:
+            **kwargs: Input fields matching initial_input schema
+
+        Returns:
+            Instance of final_output model, or None if no final_output defined
+        """
+        try:
+            asyncio.get_running_loop()
+            # Already inside an event loop — run in a new thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, self.__call__(**kwargs)).result()
+        except RuntimeError:
+            # No running loop — use asyncio.run() directly
+            return asyncio.run(self.__call__(**kwargs))
+
+    async def _single_turn(self, **kwargs) -> BaseModel | None:
         """Execute a single-turn module call.
 
         Args:
@@ -417,7 +443,7 @@ class Module:
 
         # 5. Call LLM
         on_stream_callback = self.on_stream if (self.stream and hasattr(self, 'on_stream')) else None
-        response = call_llm(
+        response = await call_llm(
             messages=messages,
             model=self.model,
             tools=tool_schemas,
@@ -463,7 +489,7 @@ class Module:
                     "with the appropriate arguments to complete the task."
                 )
             })
-            response = call_llm(
+            response = await call_llm(
                 messages=self.history,
                 model=self.model,
                 tools=tool_schemas,
@@ -499,14 +525,14 @@ class Module:
             )
 
         # 7. Validate __finish__ arguments (with retries)
-        return self._validate_and_retry(
+        return await self._validate_and_retry(
             messages,
             tool_schemas,
             tool_call,
             attempt=0
         )
 
-    def _agentic_loop(self, **kwargs) -> BaseModel | None:
+    async def _agentic_loop(self, **kwargs) -> BaseModel | None:
         """Execute multi-turn agentic loop with tool calls.
 
         Args:
@@ -566,7 +592,7 @@ class Module:
 
             # Call LLM
             on_stream_callback = self.on_stream if (self.stream and hasattr(self, 'on_stream')) else None
-            response = call_llm(
+            response = await call_llm(
                 messages=self.history,
                 model=self.model,
                 tools=tool_schemas,
@@ -620,9 +646,8 @@ class Module:
                 })
                 continue
 
-            # Process tool calls
+            # Process tool calls - separate __finish__ from regular tools
             tool_call_objs = []
-            tool_result_objs = []
 
             for tc in tool_calls:
                 tool_name = tc["function"]["name"]
@@ -648,7 +673,7 @@ class Module:
                         self.history.append(error_msg)
                         continue
 
-                # Execute regular tool
+                # Build tool call object for regular tools
                 tool_call_obj = ToolCall(
                     id=tc["id"],
                     name=tool_name,
@@ -656,17 +681,24 @@ class Module:
                 )
                 tool_call_objs.append(tool_call_obj)
 
-                # Find and execute tool
-                tool_result = self._execute_tool(tool_call_obj, current_tools)
-                tool_result_objs.append(tool_result)
+            # Execute all non-__finish__ tools concurrently
+            if tool_call_objs:
+                results = await asyncio.gather(*[
+                    self._execute_tool(tc_obj, current_tools) for tc_obj in tool_call_objs
+                ])
 
-                # Add tool result to history
-                result_msg = {
-                    "role": "tool",
-                    "tool_call_id": tool_result.id,
-                    "content": str(tool_result.output) if tool_result.error is None else f"Error: {tool_result.error}"
-                }
-                self.history.append(result_msg)
+                tool_result_objs = list(results)
+
+                # Add tool results to history
+                for tool_result in tool_result_objs:
+                    result_msg = {
+                        "role": "tool",
+                        "tool_call_id": tool_result.id,
+                        "content": str(tool_result.output) if tool_result.error is None else f"Error: {tool_result.error}"
+                    }
+                    self.history.append(result_msg)
+            else:
+                tool_result_objs = []
 
             # Reset no-tool-call retry counter after successful tool processing
             no_tool_call_retries = 0
@@ -685,7 +717,10 @@ class Module:
 
             # Call on_step callback if defined
             if hasattr(self, 'on_step') and callable(self.on_step):
-                step = self.on_step(step)
+                if asyncio.iscoroutinefunction(self.on_step):
+                    step = await self.on_step(step)
+                else:
+                    step = self.on_step(step)
 
                 # Check if step.finish() was called
                 if step._finished:
@@ -711,9 +746,9 @@ class Module:
                     current_tools = [t for t in current_tools if t.__name__ != tool_name_to_remove]
 
         # Max steps reached - force termination with __finish__
-        return self._force_termination()
+        return await self._force_termination()
 
-    def _execute_tool(self, tool_call: ToolCall, tools: list) -> ToolResult:
+    async def _execute_tool(self, tool_call: ToolCall, tools: list) -> ToolResult:
         """Execute a tool and return the result.
 
         Args:
@@ -740,7 +775,10 @@ class Module:
 
         # Execute the tool
         try:
-            result = tool_func(**tool_call.arguments)
+            if asyncio.iscoroutinefunction(tool_func):
+                result = await tool_func(**tool_call.arguments)
+            else:
+                result = tool_func(**tool_call.arguments)
             return ToolResult(
                 id=tool_call.id,
                 name=tool_call.name,
@@ -786,7 +824,7 @@ class Module:
 
         return {"role": "system", "content": prompt_text}
 
-    def _validate_and_retry(
+    async def _validate_and_retry(
         self,
         messages: list[dict],
         tool_schemas: list[dict],
@@ -831,7 +869,7 @@ class Module:
             ]
 
             # Retry LLM call
-            response = call_llm(
+            response = await call_llm(
                 messages=retry_messages,
                 model=self.model,
                 tools=tool_schemas,
@@ -862,7 +900,7 @@ class Module:
                 )
 
             # Recursive retry
-            return self._validate_and_retry(
+            return await self._validate_and_retry(
                 retry_messages,
                 tool_schemas,
                 retry_tool_call,
@@ -920,7 +958,7 @@ class Module:
         """
         module_ref = self
 
-        def branch(**kwargs):
+        async def branch(**kwargs):
             """Spawn a sub-agent branch. IMPORTANT: You MUST first call branch() with no arguments to discover available branches and their exact input parameter names. Do NOT guess parameter names. After discovery, call with 'name' and the branch's required input parameters."""
             name = kwargs.pop("name", None)
             merge = kwargs.pop("merge", "end_result")
@@ -962,7 +1000,7 @@ class Module:
             if merge not in ("end_result", "summarize"):
                 raise BranchError(f"Invalid merge strategy '{merge}'. Must be: end_result, summarize")
 
-            result, merged_content = module_ref._execute_branch(branch_class, merge, **kwargs)
+            result, merged_content = await module_ref._execute_branch(branch_class, merge, **kwargs)
             return merged_content
 
         branch.__name__ = "branch"
@@ -1009,7 +1047,7 @@ class Module:
             if t.__name__ not in ("__finish__", "branch")
         ]
 
-        def call_parent_tool(**kwargs):
+        async def call_parent_tool(**kwargs):
             """Call a tool from the parent module. Call with no args to list available parent tools. Call with name and the tool's args to execute it."""
             name = kwargs.pop("name", None)
 
@@ -1035,6 +1073,8 @@ class Module:
                 available = [t.__name__ for t in filtered_tools]
                 raise BranchError(f"Parent tool '{name}' not found. Available: {available}")
 
+            if asyncio.iscoroutinefunction(tool_func):
+                return await tool_func(**kwargs)
             return tool_func(**kwargs)
 
         call_parent_tool.__name__ = "call_parent_tool"
@@ -1059,7 +1099,7 @@ class Module:
 
         return call_parent_tool
 
-    def _execute_branch(self, branch_class, merge="end_result", **kwargs):
+    async def _execute_branch(self, branch_class, merge="end_result", **kwargs):
         """Execute a branch module and return result with merged content.
 
         Args:
@@ -1127,7 +1167,7 @@ class Module:
 
         # Execute branch
         try:
-            result = branch_instance(**kwargs)
+            result = await branch_instance(**kwargs)
         except Exception as e:
             raise BranchError(f"Branch execution failed: {e}")
 
@@ -1140,7 +1180,7 @@ class Module:
         if merge == "end_result":
             merged_content = self._merge_end_result(result)
         elif merge == "summarize":
-            merged_content = self._merge_summarize(branch_instance, result)
+            merged_content = await self._merge_summarize(branch_instance, result)
         else:
             merged_content = self._merge_end_result(result)
 
@@ -1165,7 +1205,7 @@ class Module:
 
         return pydantic_to_xml(result, root_tag="branch_result", include_descriptions=False)
 
-    def _merge_summarize(self, branch_instance, result):
+    async def _merge_summarize(self, branch_instance, result):
         """Merge strategy: LLM-generated summary of branch history + result.
 
         Args:
@@ -1185,7 +1225,7 @@ class Module:
         ]
 
         # Use branch's model for summary
-        response = call_llm(
+        response = await call_llm(
             messages=summary_messages,
             model=branch_instance.model,
             tools=None,
@@ -1227,7 +1267,7 @@ class Module:
                 lines.append(f"[{role.title()}] {content}")
         return "\n".join(lines)
 
-    def branch(self, module_class, /, merge="end_result", **kwargs):
+    async def branch(self, module_class, /, merge="end_result", **kwargs):
         """Manually spawn a branch from within on_step or other callbacks.
 
         Args:
@@ -1238,7 +1278,7 @@ class Module:
         Returns:
             The branch's final_output instance (or None)
         """
-        result, merged_content = self._execute_branch(module_class, merge, **kwargs)
+        result, merged_content = await self._execute_branch(module_class, merge, **kwargs)
 
         # Inject merge result into parent history
         self.history.append({
@@ -1318,7 +1358,7 @@ class Module:
             # Generate schema on the fly
             return generate_tool_schema(tool)
 
-    def _force_termination(self) -> BaseModel | None:
+    async def _force_termination(self) -> BaseModel | None:
         """Force termination at max_steps by requiring __finish__ call.
 
         Primary strategy: Use tool_choice to force __finish__ (preserves cache)
@@ -1342,7 +1382,7 @@ class Module:
 
         # Try tool_choice first (preserves prompt caching)
         try:
-            response = call_llm(
+            response = await call_llm(
                 messages=self.history,
                 model=self.model,
                 tools=tool_schemas,
@@ -1370,7 +1410,7 @@ class Module:
                         return result
                     except Exception as e:
                         # Validation failed - use retry mechanism
-                        return self._retry_forced_finish(
+                        return await self._retry_forced_finish(
                             tool_schemas,
                             tool_call,
                             attempt=0,
@@ -1388,7 +1428,7 @@ class Module:
             f"Consider increasing max_steps or simplifying the task."
         )
 
-    def _retry_forced_finish(
+    async def _retry_forced_finish(
         self,
         tool_schemas: list[dict],
         tool_call: dict,
@@ -1429,7 +1469,7 @@ class Module:
         ]
 
         # Retry with tool_choice
-        response = call_llm(
+        response = await call_llm(
             messages=retry_history,
             model=self.model,
             tools=tool_schemas,
@@ -1467,10 +1507,9 @@ class Module:
             return result
         except Exception as e:
             # Recursive retry
-            return self._retry_forced_finish(
+            return await self._retry_forced_finish(
                 tool_schemas,
                 retry_tool_call,
                 attempt + 1,
                 error=e
             )
-

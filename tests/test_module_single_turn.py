@@ -2,7 +2,7 @@
 
 import pytest
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from pydantic import BaseModel, Field
 
 from acorn import Module
@@ -31,7 +31,7 @@ def create_tool_call(name: str, arguments: dict, call_id: str = "call_123"):
     return tc
 
 
-def test_single_turn_basic():
+async def test_single_turn_basic():
     """Test basic single-turn execution."""
     class Input(BaseModel):
         text: str
@@ -46,19 +46,19 @@ def test_single_turn_basic():
         final_output = Output
 
     # Mock the LiteLLM call
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Create mock response with __finish__ call
         finish_call = create_tool_call("__finish__", {"summary": "Test summary"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         mod = SummaryModule()
-        result = mod(text="Long text to summarize...")
+        result = await mod(text="Long text to summarize...")
 
         assert isinstance(result, Output)
         assert result.summary == "Test summary"
 
 
-def test_single_turn_with_field_descriptions():
+async def test_single_turn_with_field_descriptions():
     """Test that field descriptions are included."""
     class Input(BaseModel):
         query: str = Field(description="The search query")
@@ -71,12 +71,12 @@ def test_single_turn_with_field_descriptions():
         initial_input = Input
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         finish_call = create_tool_call("__finish__", {"results": "Found items"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         mod = SearchModule()
-        result = mod(query="test")
+        result = await mod(query="test")
 
         assert result.results == "Found items"
 
@@ -90,7 +90,7 @@ def test_single_turn_with_field_descriptions():
         assert "test" in user_msg
 
 
-def test_single_turn_validation_error():
+async def test_single_turn_validation_error():
     """Test that validation errors raise ParseError."""
     class Output(BaseModel):
         count: int  # Expects int, will get string
@@ -99,7 +99,7 @@ def test_single_turn_validation_error():
         model = "test-model"
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Return invalid data (string instead of int)
         finish_call = create_tool_call("__finish__", {"count": "not_a_number"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
@@ -107,10 +107,10 @@ def test_single_turn_validation_error():
         mod = CountModule()
 
         with pytest.raises(ParseError, match="Failed to validate output"):
-            mod()
+            await mod()
 
 
-def test_single_turn_no_tool_call():
+async def test_single_turn_no_tool_call():
     """Test error when no tool is called."""
     class Output(BaseModel):
         result: str
@@ -119,17 +119,17 @@ def test_single_turn_no_tool_call():
         model = "test-model"
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Return response with no tool calls
         mock_completion.return_value = MockResponse(content="Just text", tool_calls=[])
 
         mod = TestModule()
 
         with pytest.raises(AcornError, match="No tool called in single-turn mode after"):
-            mod()
+            await mod()
 
 
-def test_single_turn_wrong_tool_call():
+async def test_single_turn_wrong_tool_call():
     """Test error when wrong tool is called."""
     class Output(BaseModel):
         result: str
@@ -138,7 +138,7 @@ def test_single_turn_wrong_tool_call():
         model = "test-model"
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Return call to wrong tool
         wrong_call = create_tool_call("other_tool", {"arg": "value"})
         mock_completion.return_value = MockResponse(tool_calls=[wrong_call])
@@ -146,10 +146,10 @@ def test_single_turn_wrong_tool_call():
         mod = TestModule()
 
         with pytest.raises(AcornError, match="Non-finish tool called"):
-            mod()
+            await mod()
 
 
-def test_single_turn_system_prompt():
+async def test_single_turn_system_prompt():
     """Test that system prompt is included in messages."""
     class Output(BaseModel):
         result: str
@@ -159,12 +159,12 @@ def test_single_turn_system_prompt():
         system_prompt = "You are a helpful assistant."
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         finish_call = create_tool_call("__finish__", {"result": "ok"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         mod = PromptModule()
-        result = mod()
+        result = await mod()
 
         # Check system message
         call_args = mock_completion.call_args
@@ -174,7 +174,7 @@ def test_single_turn_system_prompt():
         assert "helpful assistant" in messages[0]["content"]
 
 
-def test_single_turn_custom_model():
+async def test_single_turn_custom_model():
     """Test using custom model configuration."""
     class Output(BaseModel):
         result: str
@@ -185,12 +185,12 @@ def test_single_turn_custom_model():
         max_tokens = 1000
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         finish_call = create_tool_call("__finish__", {"result": "done"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         mod = CustomModelModule()
-        result = mod()
+        result = await mod()
 
         # Check that custom config was used
         call_args = mock_completion.call_args
@@ -199,7 +199,7 @@ def test_single_turn_custom_model():
         assert call_args.kwargs["max_tokens"] == 1000
 
 
-def test_single_turn_multiple_output_fields():
+async def test_single_turn_multiple_output_fields():
     """Test output with multiple fields."""
     class Output(BaseModel):
         summary: str
@@ -210,7 +210,7 @@ def test_single_turn_multiple_output_fields():
         model = "test-model"
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         finish_call = create_tool_call("__finish__", {
             "summary": "Brief summary",
             "word_count": 42,
@@ -219,14 +219,14 @@ def test_single_turn_multiple_output_fields():
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         mod = AnalyzerModule()
-        result = mod()
+        result = await mod()
 
         assert result.summary == "Brief summary"
         assert result.word_count == 42
         assert result.keywords == ["ai", "ml"]
 
 
-def test_multi_turn_is_implemented():
+async def test_multi_turn_is_implemented():
     """Test that multi-turn is now implemented."""
     class Output(BaseModel):
         result: str
@@ -243,7 +243,7 @@ def test_multi_turn_is_implemented():
     # Actual execution requires mocked LLM calls (tested in test_agentic_loop.py)
 
 
-def test_single_turn_retries_on_no_tool_calls():
+async def test_single_turn_retries_on_no_tool_calls():
     """Test that single-turn mode retries when model returns no tool calls."""
     class Output(BaseModel):
         result: str
@@ -252,7 +252,7 @@ def test_single_turn_retries_on_no_tool_calls():
         model = "test-model"
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # First call: no tool calls, second call: __finish__
         finish_call = create_tool_call("__finish__", {"result": "success"})
 
@@ -262,7 +262,7 @@ def test_single_turn_retries_on_no_tool_calls():
         ]
 
         mod = RetryModule()
-        result = mod()
+        result = await mod()
 
         assert result.result == "success"
         # Verify reminder message was appended to history

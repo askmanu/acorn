@@ -31,7 +31,7 @@ def create_tool_call(name: str, arguments: dict, call_id: str = "call_123"):
     return tc
 
 
-def test_parse_retry_success_on_second_attempt():
+async def test_parse_retry_success_on_second_attempt():
     """Test successful retry after initial parse error."""
     class Output(BaseModel):
         count: int
@@ -41,7 +41,7 @@ def test_parse_retry_success_on_second_attempt():
         final_output = Output
         max_parse_retries = 2
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # First call: invalid data
         invalid_call = create_tool_call("__finish__", {"count": "not_a_number"})
 
@@ -55,14 +55,14 @@ def test_parse_retry_success_on_second_attempt():
         ]
 
         mod = CountModule()
-        result = mod()
+        result = await mod()
 
         assert result.count == 42
         # Should have been called twice (initial + 1 retry)
         assert mock_completion.call_count == 2
 
 
-def test_parse_retry_failure_after_max_retries():
+async def test_parse_retry_failure_after_max_retries():
     """Test that ParseError is raised after max retries exhausted."""
     class Output(BaseModel):
         count: int
@@ -72,7 +72,7 @@ def test_parse_retry_failure_after_max_retries():
         final_output = Output
         max_parse_retries = 2
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # All calls return invalid data
         invalid_call = create_tool_call("__finish__", {"count": "invalid"})
         mock_completion.return_value = MockResponse(tool_calls=[invalid_call])
@@ -80,13 +80,13 @@ def test_parse_retry_failure_after_max_retries():
         mod = CountModule()
 
         with pytest.raises(ParseError, match="Failed to validate output after 2 retries"):
-            mod()
+            await mod()
 
         # Should have been called 3 times (initial + 2 retries)
         assert mock_completion.call_count == 3
 
 
-def test_parse_retry_includes_error_message():
+async def test_parse_retry_includes_error_message():
     """Test that retry includes error details."""
     class Output(BaseModel):
         value: int
@@ -96,7 +96,7 @@ def test_parse_retry_includes_error_message():
         final_output = Output
         max_parse_retries = 1
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         invalid_call = create_tool_call("__finish__", {"value": "bad"})
         valid_call = create_tool_call("__finish__", {"value": 10})
 
@@ -106,7 +106,7 @@ def test_parse_retry_includes_error_message():
         ]
 
         mod = TestModule()
-        result = mod()
+        result = await mod()
 
         # Check that retry message includes error
         second_call_args = mock_completion.call_args_list[1]
@@ -119,7 +119,7 @@ def test_parse_retry_includes_error_message():
         assert "validation failed" in error_msg["content"]
 
 
-def test_parse_retry_with_zero_retries():
+async def test_parse_retry_with_zero_retries():
     """Test that max_parse_retries=0 means no retries."""
     class Output(BaseModel):
         value: int
@@ -129,20 +129,20 @@ def test_parse_retry_with_zero_retries():
         final_output = Output
         max_parse_retries = 0
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         invalid_call = create_tool_call("__finish__", {"value": "bad"})
         mock_completion.return_value = MockResponse(tool_calls=[invalid_call])
 
         mod = NoRetryModule()
 
         with pytest.raises(ParseError, match="Failed to validate output after 0 retries"):
-            mod()
+            await mod()
 
         # Should only be called once
         assert mock_completion.call_count == 1
 
 
-def test_parse_retry_success_on_first_attempt():
+async def test_parse_retry_success_on_first_attempt():
     """Test that no retry happens when first attempt succeeds."""
     class Output(BaseModel):
         value: int
@@ -152,19 +152,19 @@ def test_parse_retry_success_on_first_attempt():
         final_output = Output
         max_parse_retries = 2
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         valid_call = create_tool_call("__finish__", {"value": 100})
         mock_completion.return_value = MockResponse(tool_calls=[valid_call])
 
         mod = SuccessModule()
-        result = mod()
+        result = await mod()
 
         assert result.value == 100
         # Should only be called once (no retries needed)
         assert mock_completion.call_count == 1
 
 
-def test_system_prompt_from_path(tmp_path):
+async def test_system_prompt_from_path(tmp_path):
     """Test loading system prompt from file path."""
     # Create a temporary file with system prompt
     prompt_file = tmp_path / "prompt.txt"
@@ -178,12 +178,12 @@ def test_system_prompt_from_path(tmp_path):
         system_prompt = prompt_file
         final_output = Output
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         valid_call = create_tool_call("__finish__", {"result": "ok"})
         mock_completion.return_value = MockResponse(tool_calls=[valid_call])
 
         mod = FilePromptModule()
-        result = mod()
+        result = await mod()
 
         # Check system message
         call_args = mock_completion.call_args

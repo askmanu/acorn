@@ -120,7 +120,7 @@ def run_module(demo_key: str, model_name: str, api_key: str, env_vars: dict | No
     def _execute():
         try:
             instance = CustomModule(**init_kwargs)
-            result = instance(**parsed_inputs)
+            result = instance.run(**parsed_inputs)
             if result is None:
                 result_holder[0] = {"result": "Completed (no structured output)"}
             else:

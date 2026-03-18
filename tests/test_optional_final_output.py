@@ -42,7 +42,7 @@ def test_single_turn_requires_final_output():
         NoOutputModule()
 
 
-def test_multi_turn_without_final_output_reaches_max_steps():
+async def test_multi_turn_without_final_output_reaches_max_steps():
     """Multi-turn without final_output runs until max_steps."""
     @tool
     def action(msg: str) -> str:
@@ -55,7 +55,7 @@ def test_multi_turn_without_final_output_reaches_max_steps():
         final_output = None
         tools = [action]
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Step 1: action("test1")
         # Step 2: action("test2")
         # Reaches max_steps → returns None
@@ -69,7 +69,7 @@ def test_multi_turn_without_final_output_reaches_max_steps():
         ]
 
         mod = ToolOnlyModule()
-        result = mod()
+        result = await mod()
 
         assert result is None
         assert mock_completion.call_count == 2
@@ -85,7 +85,7 @@ def test_multi_turn_without_final_output_reaches_max_steps():
             assert finish_tool["function"]["parameters"]["required"] == []
 
 
-def test_multi_turn_without_final_output_early_finish():
+async def test_multi_turn_without_final_output_early_finish():
     """Multi-turn without final_output can call __finish__ to end early."""
     @tool
     def action(msg: str) -> str:
@@ -98,7 +98,7 @@ def test_multi_turn_without_final_output_early_finish():
         final_output = None
         tools = [action]
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Step 1: action("test1")
         # Step 2: __finish__() → returns None early
 
@@ -111,13 +111,13 @@ def test_multi_turn_without_final_output_early_finish():
         ]
 
         mod = ToolOnlyModule()
-        result = mod()
+        result = await mod()
 
         assert result is None
         assert mock_completion.call_count == 2  # Ended early (before max_steps=5)
 
 
-def test_multi_turn_no_final_output_on_step_callback():
+async def test_multi_turn_no_final_output_on_step_callback():
     """Test on_step callback works without final_output."""
     steps_collected = []
 
@@ -136,19 +136,19 @@ def test_multi_turn_no_final_output_on_step_callback():
             steps_collected.append(step)
             return step
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         log_call = create_tool_call("log_data", {"data": "info"})
         mock_completion.return_value = MockResponse(tool_calls=[log_call])
 
         mod = CallbackModule()
-        result = mod()
+        result = await mod()
 
         assert result is None
         assert len(steps_collected) == 2
         assert all(s.counter > 0 for s in steps_collected)
 
 
-def test_multi_turn_no_final_output_history_tracking():
+async def test_multi_turn_no_final_output_history_tracking():
     """Test history is tracked correctly without final_output."""
     @tool
     def get_info() -> str:
@@ -161,12 +161,12 @@ def test_multi_turn_no_final_output_history_tracking():
         final_output = None
         tools = [get_info]
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         info_call = create_tool_call("get_info", {})
         mock_completion.return_value = MockResponse(tool_calls=[info_call])
 
         mod = HistoryModule()
-        result = mod()
+        result = await mod()
 
         assert result is None
 
@@ -177,7 +177,7 @@ def test_multi_turn_no_final_output_history_tracking():
         assert any(msg["role"] == "tool" for msg in mod.history)
 
 
-def test_multi_turn_no_final_output_step_finish():
+async def test_multi_turn_no_final_output_step_finish():
     """Test step.finish() works without final_output."""
     @tool
     def check_condition() -> bool:
@@ -196,18 +196,18 @@ def test_multi_turn_no_final_output_step_finish():
                 step.finish()  # No kwargs needed
             return step
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         check_call = create_tool_call("check_condition", {})
         mock_completion.return_value = MockResponse(tool_calls=[check_call])
 
         mod = EarlyExitModule()
-        result = mod()
+        result = await mod()
 
         assert result is None
         assert mock_completion.call_count == 1  # Only one step before early exit
 
 
-def test_multi_turn_allows_final_output_still_works():
+async def test_multi_turn_allows_final_output_still_works():
     """Verify modules WITH final_output still work correctly."""
     @tool
     def process() -> str:
@@ -223,7 +223,7 @@ def test_multi_turn_allows_final_output_still_works():
         final_output = Output
         tools = [process]
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         process_call = create_tool_call("process", {}, "call_1")
         finish_call = create_tool_call("__finish__", {"result": "done"}, "call_2")
 
@@ -233,7 +233,7 @@ def test_multi_turn_allows_final_output_still_works():
         ]
 
         mod = NormalModule()
-        result = mod()
+        result = await mod()
 
         assert result is not None
         assert isinstance(result, Output)

@@ -37,7 +37,7 @@ def create_tool_call(name: str, arguments: dict, call_id: str = "call_123"):
     return tc
 
 
-def test_single_turn_with_cache_true():
+async def test_single_turn_with_cache_true():
     """Test single-turn module with cache=True."""
     class CachedModule(Module):
         """Test module."""
@@ -46,13 +46,13 @@ def test_single_turn_with_cache_true():
         final_output = Output
         cache = True
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Mock the __finish__ call
         finish_call = create_tool_call("__finish__", {"result": "test output"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         module = CachedModule()
-        result = module(text="test input")
+        result = await module(text="test input")
 
         # Verify cache was passed to litellm
         call_args = mock_completion.call_args
@@ -65,7 +65,7 @@ def test_single_turn_with_cache_true():
         assert result.result == "test output"
 
 
-def test_single_turn_with_custom_cache():
+async def test_single_turn_with_custom_cache():
     """Test single-turn module with custom cache configuration."""
     class CustomCachedModule(Module):
         """Test module."""
@@ -74,13 +74,13 @@ def test_single_turn_with_custom_cache():
         final_output = Output
         cache = [{"location": "message", "role": "system"}]
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Mock the __finish__ call
         finish_call = create_tool_call("__finish__", {"result": "custom cache output"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         module = CustomCachedModule()
-        result = module(text="test input")
+        result = await module(text="test input")
 
         # Verify custom cache was passed to litellm
         call_args = mock_completion.call_args
@@ -92,7 +92,7 @@ def test_single_turn_with_custom_cache():
         assert result.result == "custom cache output"
 
 
-def test_module_without_cache():
+async def test_module_without_cache():
     """Test module without cache (backwards compatibility)."""
     class NoCacheModule(Module):
         """Test module."""
@@ -101,13 +101,13 @@ def test_module_without_cache():
         final_output = Output
         # cache not specified (defaults to None)
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Mock the __finish__ call
         finish_call = create_tool_call("__finish__", {"result": "no cache output"})
         mock_completion.return_value = MockResponse(tool_calls=[finish_call])
 
         module = NoCacheModule()
-        result = module(text="test input")
+        result = await module(text="test input")
 
         # Verify cache_control_injection_points was NOT added
         call_args = mock_completion.call_args
@@ -117,7 +117,7 @@ def test_module_without_cache():
         assert result.result == "no cache output"
 
 
-def test_multi_turn_with_cache():
+async def test_multi_turn_with_cache():
     """Test multi-turn agentic mode with cache."""
 
     def mock_tool(value: str) -> str:
@@ -132,7 +132,7 @@ def test_multi_turn_with_cache():
         final_output = Output
         cache = True
 
-    with patch('acorn.llm.litellm_client.litellm.completion') as mock_completion:
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
         # Step 1: Call mock_tool
         # Step 2: Call __finish__
         tool_call = create_tool_call("mock_tool", {"value": "test"}, "call_1")
@@ -144,7 +144,7 @@ def test_multi_turn_with_cache():
         ]
 
         module = MultiTurnCached()
-        result = module()
+        result = await module()
 
         # Verify cache was passed to both calls
         assert mock_completion.call_count == 2

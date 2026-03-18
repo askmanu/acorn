@@ -1,10 +1,11 @@
 """LiteLLM client wrapper for Acorn."""
 
+import asyncio
 import litellm
 import json
 import re
 from uuid import uuid4
-from typing import Any, Iterator, Callable
+from typing import Any, Callable
 from pydantic import BaseModel
 from acorn.types import StreamChunk
 
@@ -34,7 +35,7 @@ def _translate_model_to_litellm(model: str | dict) -> str | dict:
     return result
 
 
-def call_llm(
+async def call_llm(
     messages: list[dict],
     model: str | dict,
     tools: list[dict] | None = None,
@@ -53,7 +54,7 @@ def call_llm(
     cache: bool | list[dict] | None = None,
     model_fallbacks: list[str | dict] | None = None,
 ) -> dict:
-    """Wrapper around litellm.completion for consistent LLM calls.
+    """Wrapper around litellm.acompletion for consistent LLM calls.
 
     Args:
         messages: List of message dictionaries (role, content)
@@ -172,15 +173,15 @@ def call_llm(
     try:
         if stream and on_stream:
             # Streaming mode with callback
-            response = litellm.completion(**kwargs)
-            return _handle_streaming_response(response, on_stream, final_output_schema)
+            response = await litellm.acompletion(**kwargs)
+            return await _handle_streaming_response(response, on_stream, final_output_schema)
         elif stream:
             # Streaming mode without callback (just accumulate)
-            response = litellm.completion(**kwargs)
-            return _accumulate_streaming_response(response)
+            response = await litellm.acompletion(**kwargs)
+            return await _accumulate_streaming_response(response)
         else:
             # Non-streaming mode
-            response = litellm.completion(**kwargs)
+            response = await litellm.acompletion(**kwargs)
             return _response_to_dict(response)
 
     except Exception as e:
@@ -296,16 +297,16 @@ def _response_to_dict(response: Any) -> dict:
     return result
 
 
-def _handle_streaming_response(
-    response: Iterator,
+async def _handle_streaming_response(
+    response,
     on_stream: Callable[[StreamChunk], None],
     final_output_schema: type[BaseModel] | None = None,
 ) -> dict:
     """Handle streaming response with callback.
 
     Args:
-        response: LiteLLM streaming response iterator
-        on_stream: Callback to call for each chunk
+        response: LiteLLM async streaming response
+        on_stream: Callback to call for each chunk (sync or async)
         final_output_schema: Optional Pydantic model for partial streaming
 
     Returns:
@@ -316,7 +317,15 @@ def _handle_streaming_response(
     accumulated_tool_calls = []
     finish_reason = None
 
-    for chunk in response:
+    is_async_callback = asyncio.iscoroutinefunction(on_stream)
+
+    async def _call_on_stream(chunk):
+        if is_async_callback:
+            await on_stream(chunk)
+        else:
+            on_stream(chunk)
+
+    async for chunk in response:
         # Get delta from chunk
         delta = chunk.choices[0].delta if chunk.choices else None
 
@@ -328,7 +337,7 @@ def _handle_streaming_response(
             accumulated_content += delta.content
             # Call callback with content chunk
             stream_chunk = StreamChunk(content=delta.content, done=False)
-            on_stream(stream_chunk)
+            await _call_on_stream(stream_chunk)
 
         # Handle reasoning_content streaming
         if hasattr(delta, "reasoning_content") and delta.reasoning_content:
@@ -373,21 +382,21 @@ def _handle_streaming_response(
                     if partial_instance:
                         # Send partial structured output
                         stream_chunk = StreamChunk(partial=partial_instance, done=False)
-                        on_stream(stream_chunk)
+                        await _call_on_stream(stream_chunk)
                     else:
                         # Parsing failed, send tool_call delta as fallback
                         stream_chunk = StreamChunk(
                             tool_call={"index": idx, "delta": tc_delta},
                             done=False
                         )
-                        on_stream(stream_chunk)
+                        await _call_on_stream(stream_chunk)
                 else:
                     # Not __finish__ or no schema - send tool call delta
                     stream_chunk = StreamChunk(
                         tool_call={"index": idx, "delta": tc_delta},
                         done=False
                     )
-                    on_stream(stream_chunk)
+                    await _call_on_stream(stream_chunk)
 
         # Get finish reason
         if hasattr(chunk.choices[0], "finish_reason") and chunk.choices[0].finish_reason:
@@ -395,7 +404,7 @@ def _handle_streaming_response(
 
     # Send final chunk
     final_chunk = StreamChunk(done=True)
-    on_stream(final_chunk)
+    await _call_on_stream(final_chunk)
 
     # Build accumulated response
     result = {
@@ -423,11 +432,11 @@ def _handle_streaming_response(
 
     return result
 
-def _accumulate_streaming_response(response: Iterator) -> dict:
+async def _accumulate_streaming_response(response) -> dict:
     """Accumulate streaming response without callback.
 
     Args:
-        response: LiteLLM streaming response iterator
+        response: LiteLLM async streaming response
 
     Returns:
         Accumulated response dictionary
@@ -437,7 +446,7 @@ def _accumulate_streaming_response(response: Iterator) -> dict:
     accumulated_tool_calls = []
     finish_reason = None
 
-    for chunk in response:
+    async for chunk in response:
         # Get delta from chunk
         delta = chunk.choices[0].delta if chunk.choices else None
 
