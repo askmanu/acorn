@@ -3,14 +3,14 @@
 ## What is Acorn?
 LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteLLM for multi-provider access.
 
-**Status**: v0.1.0 - Production-ready for single-turn and multi-turn agentic loops. 128 tests, 90% coverage.
-
 ## Core Architecture
 
 ### Module (First-Class Citizen)
 - Base class for all agents: `class MyAgent(module)`
 - All config lives in class attributes: `model`, `temperature`, `max_steps`, `tools`, etc.
-- Invoked like a function: `agent(question="...")` returns structured Pydantic output
+- **Async-first**: `__call__` is async, `run()` provides sync access
+  - `result = await agent(question="...")` — async
+  - `result = agent.run(question="...")` — sync wrapper
 
 ### Structured I/O
 - **User-facing**: Pydantic models for `initial_input` and `final_output`
@@ -55,37 +55,12 @@ LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteL
 
 6. **Model Can Be Dict**: `model` accepts string or dict for advanced LiteLLM config.
 
-## Implementation Status (v0.1.0)
-
-### ✅ Completed
-- Single-turn and multi-turn execution
-- Tool calling with auto-schema generation
-- Parse error recovery with retries
-- Dynamic tool management (add/remove in `on_step`)
-- Step callbacks and streaming
-- Forced termination at `max_steps` (tool_choice + XML fallback)
-- Branching (declarative and manual)
-- Streaming responses with partial structured outputs (Phase 8)
-- Provider caching (Phase 10)
-
-### 📋 Planned
-- Async support (v0.2)
+7. **Async-First**: `__call__` is async. `run()` provides sync access via `asyncio.run()` or a background thread when already in an event loop.
 
 ## File Structure
 - `acorn/` - Source code
-- `specs/` - Detailed design specifications (see below)
 - `examples/` - Working examples
-- `tests/` - Test suite (128 tests, 90% coverage)
-- `IMPLEMENTATION_STATUS.md` - Detailed feature status and API reference
-- `PROGRESS_SUMMARY.md` - Development progress
-
-## Spec Files (Full Details)
-- `intro.md` - Philosophy, tech stack, v0.1 scope
-- `core-concepts.md` - Module, tools, I/O schemas, system prompt
-- `agentic-loop.md` - ReAct loop, step lifecycle, callbacks, termination
-- `branching.md` - Branch inheritance model, nested branches
-- `data-serialization.md` - XML serialization details, Pydantic ↔ XML
-- `api-reference.md` - Complete API surface
+- `tests/` - Test suite
 
 ## Common Patterns
 
@@ -96,6 +71,8 @@ class Classifier(module):
     initial_input = TextInput
     final_output = SentimentOutput
     # max_steps = None (default)
+
+result = await Classifier()(text="Hello world")
 ```
 
 ### Multi-Turn Agent with Tools
@@ -109,6 +86,9 @@ class ResearchAgent(module):
     def on_step(self, step):
         # Inspect, modify history, manage tools
         return step
+
+result = await ResearchAgent()(topic="AI")
+# Or sync: ResearchAgent().run(topic="AI")
 ```
 
 ### Branch Module (Extends Parent)
@@ -127,3 +107,4 @@ class FactCheckBranch(module):
 - History and tool results are mutable in `on_step`
 - `max_steps = None` is single-turn (still allows tools)
 - Model can be string or dict for advanced config
+- `__call__` is async; use `run()` for sync access

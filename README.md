@@ -49,6 +49,26 @@ export OPENAI_API_KEY="your-key-here"
 # Or any other LiteLLM-supported provider
 ```
 
+### ⚠️ Breaking Change in v0.8.0: Async-First API
+
+Acorn v0.8.0 makes `__call__` async. If you're upgrading from v0.7.x, you need to update your code:
+
+- **Sync code**: Replace `agent(...)` with `agent.run(...)`
+- **Async code**: Add `await` — `await agent(...)`
+
+**Auto-migrate with your AI coding agent:**
+
+Paste this into your AI coding agent to update your codebase automatically:
+
+```
+Find all usages of acorn Module subclasses being called directly (e.g. `agent(...)`, `MyModule()(...)`).
+- If the call site is in a sync function or top-level code, replace it with `agent.run(...)`.
+- If the call site is in an async function, add `await` before the call: `await agent(...)`.
+Do NOT change the class definitions themselves, only the call sites.
+```
+
+---
+
 ### Single-Turn Example
 
 ```python
