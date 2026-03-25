@@ -10,7 +10,8 @@ from acorn._version import __version__
 from acorn.decorators import tool
 from acorn.partial import Partial
 from acorn.types import Step, ToolCall, ToolResult, StreamChunk
-from acorn.exceptions import AcornError, ParseError, BranchError, ToolConflictError
+from acorn.exceptions import AcornError, ParseError, BranchError, ServiceError, ToolConflictError
+from acorn.service import Service
 from acorn.serialization import pydantic_to_xml, xml_to_pydantic
 from acorn.module import Module
 from acorn.template import Template
@@ -26,9 +27,11 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "StreamChunk",
+    "Service",
     "AcornError",
     "ParseError",
     "BranchError",
+    "ServiceError",
     "ToolConflictError",
     "pydantic_to_xml",
     "xml_to_pydantic",
