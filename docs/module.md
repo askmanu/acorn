@@ -537,7 +537,7 @@ Focus on critical issues. Style suggestions are optional.
 
 ## Tools
 
-Functions the LLM can call to gather information or take actions.
+Functions the LLM can call to gather information or take actions. Tools can be standalone functions, decorated methods, or grouped into [Services](services.md).
 
 ### Defining Tools
 
@@ -595,7 +595,7 @@ class MyModule(Module):
 ```python
 class MyModule(Module):
     tools = [external_tool]  # External functions
-    
+
     @tool
     def internal_tool(self, data: str) -> str:
         """Tool with access to module state."""
@@ -603,6 +603,35 @@ class MyModule(Module):
 ```
 
 Both lists are combined. If there's a name conflict, acorn raises `ToolConflictError`.
+
+**Option 4: Services**
+
+Add a `Service` instance to the tools list. Its `@tool` methods are automatically expanded and prefixed with the service name:
+
+```python
+from acorn.services.memory import Memory
+
+class MyModule(Module):
+    tools = [Memory(path="./mem.db"), search_web]
+    max_steps = 10
+    # Expands to: memory__save, memory__search, memory__delete, memory__list_all, search_web
+```
+
+Service lifecycle (`setup()` / `teardown()`) is managed automatically by the Module. See [Services](services.md) for details.
+
+### tool_discovery
+
+When a module has many tools, you can hide tool schemas from the prompt and let the LLM search for them on demand:
+
+```python
+class MyModule(Module):
+    tools = [Gmail(token="..."), Memory(path="./mem.db")]
+    tool_discovery = "search"  # LLM gets search_tools instead of all schemas
+```
+
+With `tool_discovery = "search"`, the LLM sees only `search_tools` and `__finish__`. It calls `search_tools(query="...")` to discover relevant tools, then calls them normally. All tools remain callable — only their schemas are deferred.
+
+See [Tool Discovery](services.md#tool-discovery) for details.
 
 ### The __finish__ Tool
 

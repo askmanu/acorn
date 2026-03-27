@@ -25,6 +25,21 @@ LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteL
 - `__finish__` tool auto-added to every module for structured output
 - Tools use native API formats (JSON), NOT XML
 
+### Services
+- `Service` base class for grouping related tools with shared config/auth
+- Class name → service name, docstring → description
+- `@tool` methods auto-collected and prefixed: `Gmail.send` → `gmail__send`
+- Lifecycle: `setup()` / `teardown()` (async), `health()` check
+- Module expands Service instances in `tools` list automatically
+- Cherry-pick individual tools without prefix: `tools = [gmail.send]`
+- Built-in `Memory` service in `acorn/services/memory.py` (SQLite-backed)
+
+### Tool Discovery
+- `tool_discovery = "search"` on Module hides tool schemas from prompt
+- LLM gets a `search_tools` tool instead of all schemas (reduces context)
+- All tools remain callable — only their schemas are deferred
+- `ToolRegistry` in `acorn/discovery.py` handles keyword search
+
 ### Agentic Loop
 - ReAct-style: reason → act (tool calls) → observe → repeat
 - `on_step(step)` callback after each step for inspection/modification
@@ -59,6 +74,9 @@ LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteL
 
 ## File Structure
 - `acorn/` - Source code
+  - `service.py` - Service base class, `_to_snake_case`, `_prefix_tool`
+  - `discovery.py` - ToolRegistry for search-based tool discovery
+  - `services/` - Built-in services (Memory)
 - `examples/` - Working examples
 - `tests/` - Test suite
 
@@ -100,6 +118,37 @@ class FactCheckBranch(module):
     final_output = VerificationOutput
 ```
 
+### Service with Tools
+```python
+from acorn import Service, tool
+
+class Gmail(Service):
+    """Google Gmail integration."""
+    def __init__(self, token: str):
+        self.token = token
+
+    @tool
+    def send(self, to: str, subject: str, body: str) -> str:
+        """Send an email."""
+        return f"Sent to {to}"
+
+# All tools (prefixed: gmail__send)
+class Agent(Module):
+    tools = [Gmail(token="...")]
+
+# Cherry-pick (no prefix)
+gmail = Gmail(token="...")
+class Agent(Module):
+    tools = [gmail.send]
+```
+
+### Tool Discovery
+```python
+class Agent(Module):
+    tools = [Gmail(token="..."), Memory(db="./mem.db")]
+    tool_discovery = "search"  # LLM searches instead of seeing all schemas
+```
+
 ## Remember
 - NEVER create XML manually - use Pydantic models
 - Output ALWAYS via `__finish__` tool call
@@ -108,3 +157,5 @@ class FactCheckBranch(module):
 - `max_steps = None` is single-turn (still allows tools)
 - Model can be string or dict for advanced config
 - `__call__` is async; use `run()` for sync access
+- Service tools are auto-prefixed (`service_name__method`) when expanded
+- `tool_discovery = "search"` hides schemas, adds search_tools meta-tool

@@ -237,6 +237,25 @@ Functions the LLM can call to gather information or take actions. Define tools w
 
 acorn automatically generates the tool schema from your function signature.
 
+### Services
+
+Services group related tools with shared config and lifecycle. For example, the built-in `Memory` service provides persistent storage:
+
+```python
+from acorn import Module
+from acorn.services.memory import Memory
+
+class Agent(Module):
+    """Agent with long-term memory."""
+    max_steps = 10
+    tools = [Memory(path="./agent_memory.db")]
+    # Provides: memory__save, memory__search, memory__delete, memory__list_all
+```
+
+Service tools are auto-prefixed (e.g., `memory__save`) to prevent name conflicts. The Module manages service lifecycle (`setup()` / `teardown()`) automatically.
+
+See [Services & Tool Discovery](services.md) for writing custom services and search-based tool discovery.
+
 ### Structured I/O
 All inputs and outputs use Pydantic models:
 - **Input validation**: Arguments are checked before the LLM runs
