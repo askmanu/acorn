@@ -45,5 +45,6 @@ print(result.sentiment)  # "positive"
 - [Getting Started](getting-started) - Install and build your first agents
 - [Module](module) - Full reference for the Module class
 - [Branching](branching) - Sub-agents and parallel processing
-- [Services & Tool Discovery](services) - Tool collections and search-based discovery
+- [Services](services/) - Tool collections, lifecycle, and built-in services
+- [Tool Discovery](services) - Search-based tool discovery
 - [GitHub](https://github.com/askmanu/acorn)
