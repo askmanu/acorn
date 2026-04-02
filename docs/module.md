@@ -50,6 +50,7 @@ When `max_steps` is set, the agent runs in a loop:
 Define a Module by subclassing and setting class attributes:
 
 ```python
+import asyncio
 from pydantic import BaseModel, Field
 from acorn import Module
 
@@ -67,9 +68,22 @@ class SentimentAnalyzer(Module):
     final_output = Output
     temperature = 0.3
 
-# Use it
+# Use it (async)
+async def main():
+    analyzer = SentimentAnalyzer()
+    result = await analyzer(text="I love this product!")
+    print(result.sentiment)  # "positive"
+    print(result.confidence)  # 0.95
+
+asyncio.run(main())
+```
+
+For synchronous code, use the `.run()` method:
+
+```python
+# Use it (sync)
 analyzer = SentimentAnalyzer()
-result = analyzer(text="I love this product!")
+result = analyzer.run(text="I love this product!")
 print(result.sentiment)  # "positive"
 print(result.confidence)  # 0.95
 ```
@@ -250,9 +264,14 @@ class Input(BaseModel):
 class MyModule(Module):
     initial_input = Input
 
-# Call with validated arguments
+# Call with validated arguments (async)
+async def main():
+    module = MyModule()
+    result = await module(question="What is Python?", context="Programming")
+
+# Call with validated arguments (sync)
 module = MyModule()
-result = module(question="What is Python?", context="Programming")
+result = module.run(question="What is Python?", context="Programming")
 ```
 
 If `initial_input` is not set, the module accepts any keyword arguments.
@@ -281,8 +300,14 @@ class TaskExecutor(Module):
     final_output = None  # No structured output
     tools = [do_task_a, do_task_b]
 
+# Async
+async def main():
+    executor = TaskExecutor()
+    result = await executor()  # Returns None after executing tools
+
+# Sync
 executor = TaskExecutor()
-result = executor()  # Returns None after executing tools
+result = executor.run()  # Returns None after executing tools
 ```
 
 ## System Prompt
@@ -565,6 +590,72 @@ Acorn generates the tool schema from:
 - Args section → parameter descriptions
 - Default values → optional parameters
 
+### Async Tools
+
+Tools can be defined as `async def` and will be automatically awaited during execution:
+
+```python
+import httpx
+from acorn import tool
+
+@tool
+async def fetch_data(url: str) -> dict:
+    """Fetch data from a URL.
+    
+    Args:
+        url: The URL to fetch from
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        return response.json()
+```
+
+Both sync and async tools can coexist in the same module. Acorn detects whether a tool is async using `asyncio.iscoroutinefunction()` and handles it appropriately.
+
+### Parallel Tool Execution
+
+When the LLM makes multiple tool calls in a single step, acorn executes them concurrently using `asyncio.gather()`. This provides significant performance improvements for I/O-bound operations like API calls, database queries, or file operations.
+
+```python
+class DataGatherer(Module):
+    """Agent that fetches data from multiple sources in parallel."""
+    
+    model = "anthropic/claude-sonnet-4-5-20250514"
+    max_steps = 3
+    
+    @tool
+    async def fetch_api_a(self, query: str) -> dict:
+        """Fetch from API A."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"https://api-a.example.com?q={query}")
+            return response.json()
+    
+    @tool
+    async def fetch_api_b(self, query: str) -> dict:
+        """Fetch from API B."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"https://api-b.example.com?q={query}")
+            return response.json()
+
+# When the LLM calls both fetch_api_a and fetch_api_b in one step,
+# they execute concurrently, not sequentially
+async def main():
+    gatherer = DataGatherer()
+    result = await gatherer(topic="Python")
+    # Both API calls happen in parallel, reducing total execution time
+```
+
+**Benefits:**
+- **Faster execution**: Multiple I/O operations run simultaneously
+- **Better resource utilization**: Don't wait idle while operations complete
+- **Automatic**: No changes needed - acorn handles parallelization internally
+
+**When it helps:**
+- API calls to different services
+- Database queries that can run independently
+- File operations (reading multiple files)
+- Any I/O-bound tool calls
+
 ### Adding Tools to Module
 
 **Option 1: Class attribute**
@@ -585,9 +676,10 @@ class MyModule(Module):
         return self._search_api(query)
     
     @tool
-    def analyze(self, data: str) -> str:
+    async def analyze(self, data: str) -> str:
         """Analyze data."""
-        return self._analyze(data)
+        # Async tools work too
+        return await self._analyze_async(data)
 ```
 
 **Option 3: Both**
@@ -777,9 +869,9 @@ Spawn branches programmatically from `on_step` or other callbacks:
 class Parent(Module):
     max_steps = 10
     
-    def on_step(self, step):
+    async def on_step(self, step):
         # Spawn branch manually
-        result = self.branch(FactCheckBranch, claim="The sky is blue", merge="end_result")
+        result = await self.branch(FactCheckBranch, claim="The sky is blue", merge="end_result")
         
         # Result is injected into parent history automatically
         # Continue parent execution with branch result
@@ -892,6 +984,19 @@ class MyModule(Module):
         return step
 ```
 
+The `on_step` callback can be async:
+
+```python
+class MyModule(Module):
+    max_steps = 10
+    
+    async def on_step(self, step):
+        # Perform async operations
+        await asyncio.sleep(0)
+        print(f"Step {step.counter} completed")
+        return step
+```
+
 The `step` object has:
 - `counter`: Current step number (1-indexed)
 - `tool_calls`: List of `ToolCall` objects
@@ -916,6 +1021,18 @@ class MyModule(Module):
         if chunk.partial:
             if chunk.partial.answer:
                 print(f"\nAnswer: {chunk.partial.answer}")
+```
+
+The `on_stream` callback can also be async:
+
+```python
+class MyModule(Module):
+    stream = True
+    
+    async def on_stream(self, chunk):
+        # Perform async operations
+        if chunk.content:
+            await self.send_to_client(chunk.content)
 ```
 
 ## Advanced Configuration
@@ -974,9 +1091,9 @@ class ResearchAgent(Module):
     temperature = 0.3
     
     @tool
-    def search(self, query: str) -> list:
+    async def search(self, query: str) -> list:
         """Search for information."""
-        return search_api(query)
+        return await search_api(query)
     
     @tool
     def analyze(self, data: str) -> str:
@@ -1032,8 +1149,14 @@ class TaskExecutor(Module):
         send_mail(to, subject)
         return f"Sent email to {to}"
 
+# Async
+async def main():
+    executor = TaskExecutor()
+    result = await executor()  # Returns None after executing tools
+
+# Sync
 executor = TaskExecutor()
-result = executor()  # Returns None after executing tools
+result = executor.run()  # Returns None after executing tools
 ```
 
 ## History
@@ -1079,7 +1202,7 @@ Raised when output validation fails after all retries:
 from acorn import ParseError
 
 try:
-    result = module(text="...")
+    result = await module(text="...")
 except ParseError as e:
     print(f"Failed to parse output: {e}")
     print(f"Raw output: {e.raw_output}")
@@ -1110,7 +1233,7 @@ Base exception for all acorn errors:
 from acorn import AcornError
 
 try:
-    result = module(text="...")
+    result = await module(text="...")
 except AcornError as e:
     print(f"Acorn error: {e}")
 ```
@@ -1132,6 +1255,8 @@ except AcornError as e:
 **Validate early**: Use Pydantic validators on input/output schemas to catch issues.
 
 **Handle large outputs**: Truncate tool results in `on_step` to avoid context limits.
+
+**Use async tools for I/O**: Define tools as `async def` when they perform network requests, database queries, or file operations for better performance.
 
 ## Next Steps
 
