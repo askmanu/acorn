@@ -74,6 +74,7 @@ export OPENAI_API_KEY="your-key-here"
 ### Single-Turn Example
 
 ```python
+import asyncio
 from pydantic import BaseModel, Field
 from acorn import Module
 
@@ -92,13 +93,28 @@ class Summarizer(Module):
     final_output = Output
     model = "anthropic/claude-sonnet-4-5-20250514"
 
-# Use it
+# Use it (async)
+async def main():
+    summarizer = Summarizer()
+    result = await summarizer(
+        text="Long article text here...",
+        max_words=50
+    )
+    print(result.summary)
+    print(f"Words: {result.word_count}")
+
+asyncio.run(main())
+```
+
+For synchronous code, use `.run()`:
+
+```python
+# Use it (sync)
 summarizer = Summarizer()
-result = summarizer(
+result = summarizer.run(
     text="Long article text here...",
     max_words=50
 )
-
 print(result.summary)
 print(f"Words: {result.word_count}")
 ```
@@ -106,6 +122,7 @@ print(f"Words: {result.word_count}")
 ### Multi-Turn Agentic Loop
 
 ```python
+import asyncio
 from pydantic import BaseModel, Field
 from acorn import Module, tool
 
@@ -150,9 +167,20 @@ class ResearchAgent(Module):
 
         return step
 
-# Use it
+# Use it (async)
+async def main():
+    agent = ResearchAgent()
+    result = await agent(topic="Large Language Models", depth="shallow")
+
+asyncio.run(main())
+```
+
+For synchronous code:
+
+```python
+# Use it (sync)
 agent = ResearchAgent()
-result = agent(topic="Large Language Models", depth="shallow")
+result = agent.run(topic="Large Language Models", depth="shallow")
 ```
 
 ---
@@ -197,6 +225,23 @@ def search(query: str, limit: int = 10) -> list:
 ```
 
 Schema is automatically generated from type hints and docstring.
+
+Tools can be async:
+
+```python
+@tool
+async def fetch_data(url: str) -> dict:
+    """Fetch data from a URL.
+
+    Args:
+        url: The URL to fetch from
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        return response.json()
+```
+
+When the LLM calls multiple tools in one step, they execute concurrently via `asyncio.gather()` for better performance.
 
 ### Step Callback
 Control agentic loop execution:
@@ -266,9 +311,9 @@ pytest tests/test_agentic_loop.py -v
 - Provider caching
 - Model fallbacks
 - Branching workflows
+- Async-first API with sync wrapper
 
 ### 📋 Planned
-- Async support
 - More docs
 - Integration examples with different providers (vector DBs, observability tools, etc.)
 
