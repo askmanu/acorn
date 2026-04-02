@@ -12,6 +12,7 @@ LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteL
 Acorn makes it easy to build LLM agents that take typed inputs and return typed outputs. Define a `Module`, give it tools, and invoke it like a function.
 
 ```python
+import asyncio
 from acorn import Module
 from pydantic import BaseModel, Field
 
@@ -23,8 +24,21 @@ class SentimentAnalyzer(Module):
     """Analyze sentiment of text."""
     final_output = Output
 
+# Async
+async def main():
+    analyzer = SentimentAnalyzer()
+    result = await analyzer(text="I love this product!")
+    print(result.sentiment)  # "positive"
+
+asyncio.run(main())
+```
+
+For synchronous code, use `.run()`:
+
+```python
+# Sync
 analyzer = SentimentAnalyzer()
-result = analyzer(text="I love this product!")
+result = analyzer.run(text="I love this product!")
 print(result.sentiment)  # "positive"
 ```
 
@@ -33,6 +47,7 @@ print(result.sentiment)  # "positive"
 - **Structured I/O** - Pydantic models for inputs and outputs with automatic validation
 - **Multi-provider** - Works with any LLM via LiteLLM (Anthropic, OpenAI, Google, Ollama, etc.)
 - **Tool calling** - Define tools with `@tool` decorator, schemas auto-generated from type hints
+- **Async tools** - Tools can be `async def` and execute concurrently when called together
 - **Agentic loops** - Multi-step ReAct loops with configurable step limits
 - **Branching** - Spawn sub-agents that inherit context and return structured results
 - **Services** - Group related tools with shared config, auth, and lifecycle management

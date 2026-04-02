@@ -46,6 +46,7 @@ Build a simple sentiment classifier that takes text and returns structured senti
 Create a file called `sentiment.py`:
 
 ```python
+import asyncio
 from pydantic import BaseModel, Field
 from acorn import Module
 
@@ -70,9 +71,23 @@ class SentimentClassifier(Module):
     temperature = 0.3
 
 # Use the classifier
-classifier = SentimentClassifier()
+async def main():
+    classifier = SentimentClassifier()
+    result = await classifier(text="I absolutely love this product! It exceeded all my expectations.")
+    
+    print(f"Sentiment: {result.sentiment}")
+    print(f"Confidence: {result.confidence}")
+    print(f"Explanation: {result.explanation}")
 
-result = classifier(text="I absolutely love this product! It exceeded all my expectations.")
+asyncio.run(main())
+```
+
+If you're not using async code, use the `.run()` method instead:
+
+```python
+# Sync version
+classifier = SentimentClassifier()
+result = classifier.run(text="I absolutely love this product! It exceeded all my expectations.")
 
 print(f"Sentiment: {result.sentiment}")
 print(f"Confidence: {result.confidence}")
@@ -106,6 +121,7 @@ Build a research assistant that uses tools and iterates through multiple steps t
 Create a file called `research.py`:
 
 ```python
+import asyncio
 from pydantic import BaseModel, Field
 from acorn import Module, tool
 
@@ -168,16 +184,30 @@ class ResearchAssistant(Module):
         return step
 
 # Use the research assistant
-assistant = ResearchAssistant()
+async def main():
+    assistant = ResearchAssistant()
+    result = await assistant(question="When was Python created and why is it popular?")
+    
+    print("\n=== Research Results ===")
+    print(f"Answer: {result.answer}")
+    print(f"\nKey Findings:")
+    for finding in result.key_findings:
+        print(f"  - {finding}")
+    print(f"\nSources: {', '.join(result.sources_used)}")
 
-result = assistant(question="When was Python created and why is it popular?")
+asyncio.run(main())
+```
+
+For sync code, use `.run()`:
+
+```python
+# Sync version
+assistant = ResearchAssistant()
+result = assistant.run(question="When was Python created and why is it popular?")
 
 print("\n=== Research Results ===")
 print(f"Answer: {result.answer}")
-print(f"\nKey Findings:")
-for finding in result.key_findings:
-    print(f"  - {finding}")
-print(f"\nSources: {', '.join(result.sources_used)}")
+# ... rest of output
 ```
 
 Run it:
