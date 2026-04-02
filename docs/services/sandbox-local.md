@@ -1,6 +1,7 @@
 ---
 title: LocalSandbox
-nav_order: 5
+parent: Services
+nav_order: 2
 ---
 
 # LocalSandbox

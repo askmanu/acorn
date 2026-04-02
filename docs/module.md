@@ -562,7 +562,7 @@ Focus on critical issues. Style suggestions are optional.
 
 ## Tools
 
-Functions the LLM can call to gather information or take actions. Tools can be standalone functions, decorated methods, or grouped into [Services](services.md).
+Functions the LLM can call to gather information or take actions. Tools can be standalone functions, decorated methods, or grouped into [Services](services/).
 
 ### Defining Tools
 
@@ -709,7 +709,7 @@ class MyModule(Module):
     # Expands to: memory__save, memory__search, memory__delete, memory__list_all, search_web
 ```
 
-Service lifecycle (`setup()` / `teardown()`) is managed automatically by the Module. See [Services](services.md) for details.
+Service lifecycle (`setup()` / `teardown()`) is managed automatically by the Module. See [Services](services/) for details.
 
 ### tool_discovery
 
