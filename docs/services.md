@@ -7,6 +7,8 @@ nav_order: 3
 
 Services group related tools with shared configuration, authentication, and lifecycle management. Tool Discovery lets agents find tools on demand instead of loading all schemas into the prompt.
 
+For detailed information about services, see the [Services category](services/).
+
 ## What is a Service?
 
 A Service is a collection of related tools that share config and state. Instead of defining standalone `@tool` functions that each manage their own credentials or connections, a Service bundles them together.
@@ -43,181 +45,16 @@ class Gmail(Service):
         return f"Found results for: {query}"
 ```
 
-**Key conventions:**
-- Class name becomes the service name (`Gmail`)
-- Class docstring becomes the service description
-- `@tool` decorated methods become tools
-- `__init__` holds configuration (tokens, DB paths, etc.)
-
-## Auto-Prefixing
-
-When a Service is added to a Module's `tools` list, its tools are automatically prefixed with the snake_case service name to prevent conflicts:
-
-| Class Name | Tool Method | Prefixed Name |
-|---|---|---|
-| `Gmail` | `send` | `gmail__send` |
-| `GoogleCalendar` | `create_event` | `google_calendar__create_event` |
-| `Memory` | `save` | `memory__save` |
-
-This means two services can have methods with the same name without conflict:
-
-```python
-class Agent(Module):
-    """Agent with multiple services."""
-    tools = [Gmail(token="..."), Slack(token="...")]
-    # gmail__send and slack__send coexist
-```
-
-### Cherry-Picking Tools
-
-To use specific tools without the prefix, reference them directly from a service instance:
-
-```python
-gmail = Gmail(token="...")
-
-class Agent(Module):
-    tools = [gmail.send, gmail.search]
-    # Tools are named "send" and "search" (no prefix)
-```
-
-### Mixing Approaches
-
-Combine services, cherry-picked tools, and plain functions freely:
-
-```python
-gmail = Gmail(token="...")
-memory = Memory(path="./mem.db")
-
-class Agent(Module):
-    tools = [
-        search_web,          # Plain @tool function
-        Gmail(token="..."),  # All Gmail tools (prefixed)
-        memory.save,         # Single Memory tool (no prefix)
-    ]
-```
-
-## Lifecycle
-
-Services have async lifecycle hooks that are called automatically by the Module:
-
-```python
-class Database(Service):
-    """Database connection pool."""
-
-    def __init__(self, url: str):
-        self.url = url
-        self.pool = None
-
-    async def setup(self):
-        """Called when the module starts. Use for async initialization."""
-        self.pool = await create_pool(self.url)
-
-    async def teardown(self):
-        """Called when the module finishes. Use for cleanup."""
-        if self.pool:
-            await self.pool.close()
-
-    async def health(self) -> bool:
-        """Check if the service is operational."""
-        return self.pool is not None and not self.pool.is_closed
-```
-
-- **`setup()`** — Called before the first LLM call. Use for establishing connections, refreshing tokens, etc.
-- **`teardown()`** — Called after the module finishes (even on error). Use for closing connections, flushing buffers.
-- **`health()`** — Returns `True` if the service is operational. Override for custom health checks.
-
-Services also work as async context managers:
-
-```python
-async with Database(url="postgresql://...") as db:
-    # db.setup() called automatically
-    tools = db.get_tools()
-# db.teardown() called automatically
-```
-
-## Writing a Custom Service
-
-Here's a complete custom service:
-
-```python
-from acorn import Service, tool
-
-class Weather(Service):
-    """Weather data from OpenWeatherMap API."""
-
-    def __init__(self, api_key: str, units: str = "metric"):
-        self.api_key = api_key
-        self.units = units
-        self._session = None
-
-    async def setup(self):
-        import aiohttp
-        self._session = aiohttp.ClientSession()
-
-    async def teardown(self):
-        if self._session:
-            await self._session.close()
-
-    @tool
-    def current(self, city: str) -> str:
-        """Get current weather for a city.
-
-        Args:
-            city: City name (e.g., "London")
-        """
-        # Use self._session, self.api_key, self.units
-        return f"Weather in {city}: 22°C, sunny"
-
-    @tool
-    def forecast(self, city: str, days: int = 3) -> str:
-        """Get weather forecast for a city.
-
-        Args:
-            city: City name
-            days: Number of days to forecast
-        """
-        return f"{days}-day forecast for {city}"
-```
-
-Use it in a module:
-
-```python
-class TravelAgent(Module):
-    """Plan trips with weather awareness."""
-    max_steps = 10
-    tools = [Weather(api_key="...")]
-    final_output = TripPlan
-```
+See the [Services documentation](services/) for more details on writing custom services, lifecycle management, and available built-in services.
 
 ## Built-in Services
 
-### Memory
+Acorn provides four built-in services:
 
-SQLite-backed persistent storage. Located in `acorn.services.memory`.
-
-```python
-from acorn.services.memory import Memory
-
-class Agent(Module):
-    """Agent with long-term memory."""
-    max_steps = 10
-    tools = [Memory(path="./agent_memory.db")]
-    final_output = Output
-```
-
-**Configuration:**
-- `path` — Path to the SQLite database file. Use `":memory:"` for in-memory storage (useful for testing).
-
-**Tools provided:**
-
-| Tool | Description |
-|---|---|
-| `memory__save` | Save or update a memory entry by key, with optional tags |
-| `memory__search` | Search memories by keyword (matches key, content, and tags) |
-| `memory__delete` | Delete a memory entry by key |
-| `memory__list_all` | List all stored memories |
-
-Each entry has a `key` (unique identifier), `content` (text), and optional `tags` (list of strings) for categorization.
+- **[Memory](services/memory.md)** — SQLite-backed persistent storage for long-term memory
+- **[LocalSandbox](services/sandbox-local.md)** — In-process Python code execution with whitelisted namespace
+- **[ProcessSandbox](services/sandbox-process.md)** — Code execution in a child process with timeout support
+- **[DockerSandbox](services/sandbox-docker.md)** — Fully isolated code execution in Docker/Podman containers
 
 ## Tool Discovery
 
