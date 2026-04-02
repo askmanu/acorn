@@ -254,7 +254,7 @@ class Agent(Module):
 
 Service tools are auto-prefixed (e.g., `memory__save`) to prevent name conflicts. The Module manages service lifecycle (`setup()` / `teardown()`) automatically.
 
-See [Services & Tool Discovery](services.md) for writing custom services and search-based tool discovery.
+See [Services](services/) for built-in services, writing custom services, and tool discovery.
 
 ### Structured I/O
 All inputs and outputs use Pydantic models:
