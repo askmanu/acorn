@@ -8,7 +8,9 @@ from typing import Any
 from pydantic import BaseModel
 import litellm
 
-from acorn.exceptions import AcornError, BranchError, ParseError, ToolConflictError
+from acorn.discovery import ToolRegistry
+from acorn.exceptions import AcornError, BranchError, ParseError, ServiceError, ToolConflictError
+from acorn.service import Service
 from acorn.serialization import pydantic_to_xml
 from acorn.tool_schema import generate_tool_schema
 from acorn.llm import call_llm
@@ -144,6 +146,9 @@ class Module:
 
     # Parse retry configuration
     max_parse_retries: int = 2
+
+    # Tool discovery mode
+    tool_discovery: str | None = None  # None = all tools visible, "search" = search-based discovery
 
     # Streaming configuration
     stream: bool = False  # Enable streaming (requires on_stream callback)
@@ -358,11 +363,29 @@ class Module:
         Raises:
             AcornError: If execution fails
             ParseError: If output validation fails
+            ServiceError: If service lifecycle fails
         """
-        if self.max_steps is None:
-            return await self._single_turn(**kwargs)
-        else:
-            return await self._agentic_loop(**kwargs)
+        # Run service setup
+        for svc in self._services:
+            try:
+                await svc.setup()
+            except Exception as e:
+                raise ServiceError(
+                    f"Service '{svc.name}' setup failed: {e}"
+                ) from e
+
+        try:
+            if self.max_steps is None:
+                return await self._single_turn(**kwargs)
+            else:
+                return await self._agentic_loop(**kwargs)
+        finally:
+            # Run service teardown (best-effort, don't mask original exception)
+            for svc in self._services:
+                try:
+                    await svc.teardown()
+                except Exception:
+                    pass
 
     def run(self, **kwargs) -> BaseModel | None:
         """Sync wrapper for async __call__.
@@ -438,8 +461,21 @@ class Module:
         finish_tool = self._generate_finish_tool()
         tools_list.append(finish_tool)
 
-        # Generate tool schemas
-        tool_schemas = [self._get_tool_schema(t) for t in tools_list]
+        # Generate tool schemas (with discovery if enabled)
+        if self.tool_discovery == "search":
+            registry = ToolRegistry(
+                [t for t in tools_list if getattr(t, "__name__", "") != "__finish__"]
+            )
+            search_tool = self._generate_search_tool(registry)
+            tools_list.append(search_tool)
+            always_visible = [search_tool, finish_tool]
+            for t in tools_list:
+                name = getattr(t, "__name__", "")
+                if name in ("branch", "call_parent_tool"):
+                    always_visible.append(t)
+            tool_schemas = [self._get_tool_schema(t) for t in always_visible]
+        else:
+            tool_schemas = [self._get_tool_schema(t) for t in tools_list]
 
         # 5. Call LLM
         on_stream_callback = self.on_stream if (self.stream and hasattr(self, 'on_stream')) else None
@@ -580,6 +616,15 @@ class Module:
         finish_tool = self._generate_finish_tool()
         current_tools.append(finish_tool)
 
+        # Tool discovery setup
+        search_tool = None
+        if self.tool_discovery == "search":
+            registry = ToolRegistry(
+                [t for t in current_tools if getattr(t, "__name__", "") != "__finish__"]
+            )
+            search_tool = self._generate_search_tool(registry)
+            current_tools.append(search_tool)
+
         # Loop state
         step_count = 0
         no_tool_call_retries = 0
@@ -588,7 +633,22 @@ class Module:
             step_count += 1
 
             # Generate tool schemas
-            tool_schemas = [self._get_tool_schema(t) for t in current_tools]
+            if self.tool_discovery == "search":
+                # Rebuild registry from current tools (handles dynamic tool changes)
+                registry = ToolRegistry(
+                    [t for t in current_tools
+                     if getattr(t, "__name__", "") not in ("__finish__", "search_tools")]
+                )
+                search_tool = self._generate_search_tool(registry)
+                # LLM only sees search_tools + __finish__ (+ branch/parent tools)
+                always_visible = [search_tool, finish_tool]
+                for t in current_tools:
+                    name = getattr(t, "__name__", "")
+                    if name in ("branch", "call_parent_tool"):
+                        always_visible.append(t)
+                tool_schemas = [self._get_tool_schema(t) for t in always_visible]
+            else:
+                tool_schemas = [self._get_tool_schema(t) for t in current_tools]
 
             # Call LLM
             on_stream_callback = self.on_stream if (self.stream and hasattr(self, 'on_stream')) else None
@@ -910,13 +970,22 @@ class Module:
     def _collect_all_tools(self) -> list:
         """Collect tools from tools attribute and @tool decorated methods.
 
+        Service instances in the tools list are expanded into their
+        individual (prefixed) tool methods.
+
         Returns:
             List of tool functions
         """
         collected = []
+        self._services = []
 
-        # Add from tools attribute
-        collected.extend(self.tools)
+        # Add from tools attribute, expanding Service instances
+        for item in self.tools:
+            if isinstance(item, Service):
+                self._services.append(item)
+                collected.extend(item.get_tools())
+            else:
+                collected.append(item)
 
         # Add from @tool decorated methods
         for name in dir(self):
@@ -1342,6 +1411,61 @@ class Module:
 
         __finish__._tool_schema = finish_schema
         return __finish__
+
+    def _generate_search_tool(self, registry: ToolRegistry):
+        """Generate the search_tools meta-tool for tool discovery.
+
+        Args:
+            registry: The ToolRegistry to search against.
+
+        Returns:
+            A callable with _tool_schema for searching available tools.
+        """
+        search_schema = {
+            "type": "function",
+            "function": {
+                "name": "search_tools",
+                "description": (
+                    "Search for available tools by keyword. Returns tool schemas "
+                    "that you can then call directly. Use this to discover what "
+                    "tools are available for a task."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query describing the tool you need (e.g., 'send email', 'create event', 'save memory')",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of tools to return",
+                            "default": 5,
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        }
+
+        def search_tools(query: str, limit: int = 5) -> str:
+            """Search for available tools."""
+            results = registry.search(query, limit=limit)
+            if not results:
+                return "No tools found matching your query. Try different keywords."
+            # Return simplified view of matching tools
+            summaries = []
+            for schema in results:
+                func = schema.get("function", schema)
+                summaries.append({
+                    "name": func.get("name"),
+                    "description": func.get("description", ""),
+                    "parameters": func.get("parameters", {}),
+                })
+            return json.dumps(summaries, indent=2)
+
+        search_tools._tool_schema = search_schema
+        return search_tools
 
     def _get_tool_schema(self, tool: Any) -> dict:
         """Get the schema for a tool.

@@ -29,6 +29,14 @@ class BranchError(AcornError):
     """
 
 
+class ServiceError(AcornError):
+    """Raised when a service lifecycle operation fails.
+
+    This exception is raised when a service's setup(), teardown(),
+    or health() method encounters an error.
+    """
+
+
 class ToolConflictError(AcornError):
     """Raised when tool name conflicts are detected.
 

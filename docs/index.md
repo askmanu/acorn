@@ -35,6 +35,8 @@ print(result.sentiment)  # "positive"
 - **Tool calling** - Define tools with `@tool` decorator, schemas auto-generated from type hints
 - **Agentic loops** - Multi-step ReAct loops with configurable step limits
 - **Branching** - Spawn sub-agents that inherit context and return structured results
+- **Services** - Group related tools with shared config, auth, and lifecycle management
+- **Tool Discovery** - Search-based tool discovery for agents with many tools
 - **Streaming** - Stream text and partial structured outputs
 - **Callbacks** - Inspect and modify execution at every step
 
@@ -43,4 +45,5 @@ print(result.sentiment)  # "positive"
 - [Getting Started](getting-started) - Install and build your first agents
 - [Module](module) - Full reference for the Module class
 - [Branching](branching) - Sub-agents and parallel processing
+- [Services & Tool Discovery](services) - Tool collections and search-based discovery
 - [GitHub](https://github.com/askmanu/acorn)
