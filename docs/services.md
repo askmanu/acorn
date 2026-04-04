@@ -1,6 +1,6 @@
 ---
 title: Services & Tool Discovery
-nav_order: 3
+nav_order: 4
 ---
 
 # Services & Tool Discovery
