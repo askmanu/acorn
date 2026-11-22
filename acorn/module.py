@@ -75,7 +75,8 @@ class Module:
                    "reasoning": True | "low" | "medium" | "high",  # optional
                    "litellm_params": {"key": "value"},  # optional, forwarded to litellm
                }
-        temperature: Sampling temperature (0.0-1.0)
+        temperature: Sampling temperature (0.0-1.0); None (default) leaves it to the provider.
+            Some models accept only their default (Claude Haiku/Sonnet 5.5, Opus 5.5).
         max_tokens: Maximum tokens to generate
         max_steps: Maximum agentic steps (None = single-turn)
 
@@ -111,7 +112,7 @@ class Module:
 
     # Default configuration
     model: str | dict = ""
-    temperature: float = 0.7
+    temperature: float | None = None
     max_tokens: int | None = None
     max_completion_tokens: int | None = None
     top_p: float | None = None
@@ -878,6 +879,10 @@ class Module:
         elif callable(getattr(self.__class__, 'system_prompt', None)):
             # Call class method
             prompt_text = self.system_prompt()
+        elif self.__class__.__doc__:
+            # The subclass's own docstring (class docstrings aren't inherited)
+            import inspect
+            prompt_text = inspect.cleandoc(self.__class__.__doc__)
         else:
             # No system prompt
             prompt_text = ""
@@ -1298,7 +1303,7 @@ class Module:
             messages=summary_messages,
             model=branch_instance.model,
             tools=None,
-            temperature=0.3,
+            temperature=branch_instance.temperature,
             max_tokens=branch_instance.max_tokens,
         )
 
@@ -1541,15 +1546,89 @@ class Module:
                             error=e
                         )
 
+        except ParseError:
+            raise
         except Exception:
-            # tool_choice not supported or failed - fall through to error
-            pass
+            # Forced tool_choice not supported (e.g. Claude Sonnet/Opus 5.5) or the call
+            # failed: ask for __finish__ in a message instead.
+            return await self._finish_by_instruction(tool_schemas)
 
         # Force termination failed — raise a clear error
         raise AcornError(
             f"Module reached max_steps ({self.max_steps}) without calling __finish__. "
             f"The model did not produce a final output in the allowed number of steps. "
             f"Consider increasing max_steps or simplifying the task."
+        )
+
+    async def _finish_by_instruction(self, tool_schemas: list[dict]) -> BaseModel:
+        """Ask for __finish__ in a message, for models that reject a forced tool_choice.
+
+        Other tool calls are answered with an error and not run. Gives up after
+        max_parse_retries further attempts.
+
+        Raises:
+            AcornError: If the model doesn't call __finish__ with valid arguments
+        """
+        instruction = (
+            f"You have reached the step limit ({self.max_steps}). "
+            "Do not call any other tool. Call __finish__ now with your final output."
+        )
+        history = self.history + [{"role": "user", "content": instruction}]
+        error: Exception | str = "no __finish__ call"
+        for _ in range(self.max_parse_retries + 1):
+            response = await call_llm(
+                messages=history,
+                model=self.model,
+                tools=tool_schemas,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                max_completion_tokens=self.max_completion_tokens,
+                top_p=self.top_p,
+                stop=self.stop,
+                presence_penalty=self.presence_penalty,
+                stream_options=self.stream_options,
+                metadata=self.metadata,
+                cache=self.cache,
+                model_fallbacks=self.model_fallbacks or None,
+            )
+            tool_calls = response.get("tool_calls") or []
+            assistant_message = {"role": "assistant", "content": response.get("content")}
+            if response.get("reasoning_content"):
+                assistant_message["reasoning_content"] = response["reasoning_content"]
+            if tool_calls:
+                assistant_message["tool_calls"] = tool_calls
+            history.append(assistant_message)
+
+            for tool_call in tool_calls:
+                if tool_call["function"]["name"] != "__finish__":
+                    continue
+                try:
+                    arguments = json.loads(tool_call["function"]["arguments"])
+                    result = self.final_output(**arguments)
+                    self.history = history
+                    return result
+                except Exception as e:
+                    error = e
+
+            if tool_calls:
+                for tool_call in tool_calls:
+                    content = (
+                        f"Error: Output validation failed: {error}. "
+                        "Call __finish__ again with valid arguments."
+                        if tool_call["function"]["name"] == "__finish__"
+                        else "Error: step limit reached; this tool was not run. "
+                        "Call __finish__ now."
+                    )
+                    history.append(
+                        {"role": "tool", "tool_call_id": tool_call["id"], "content": content}
+                    )
+            else:
+                history.append({"role": "user", "content": instruction})
+
+        self.history = history
+        raise AcornError(
+            f"Module reached max_steps ({self.max_steps}) and did not call __finish__ with valid "
+            f"output after {self.max_parse_retries + 1} requests: {error}"
         )
 
     async def _retry_forced_finish(

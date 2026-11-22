@@ -39,7 +39,7 @@ async def call_llm(
     messages: list[dict],
     model: str | dict,
     tools: list[dict] | None = None,
-    temperature: float = 0.7,
+    temperature: float | None = None,
     max_tokens: int | None = None,
     max_completion_tokens: int | None = None,
     top_p: float | None = None,
@@ -89,14 +89,12 @@ async def call_llm(
         kwargs = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
         }
     else:
         # Model is a dict
         kwargs = {
             "model": model["id"],
             "messages": messages,
-            "temperature": temperature,
         }
 
         # Add optional Vertex AI parameters
@@ -140,6 +138,10 @@ async def call_llm(
     # Add tools if provided
     if tools:
         kwargs["tools"] = tools
+
+    # Sampling temperature only when set: some models accept only their default
+    if temperature is not None:
+        kwargs["temperature"] = temperature
 
     # Add tool_choice if provided
     if tool_choice:

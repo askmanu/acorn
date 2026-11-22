@@ -45,7 +45,7 @@ LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteL
 - `on_step(step)` callback after each step for inspection/modification
 - `on_stream(chunk)` callback for streaming text and partial structured output
 - Termination: model calls `__finish__` with data matching `final_output` schema
-- Forced termination at `max_steps`: uses `tool_choice="__finish__"` (or XML fallback)
+- Forced termination at `max_steps`: uses `tool_choice="__finish__"`; when the model rejects a forced tool_choice (Claude Sonnet/Opus 5.5), asks for `__finish__` in a message instead (`_finish_by_instruction`)
 - Parse error recovery: validation failures sent back to model for retry
 
 ### Branching (Extend, Not Replace)
@@ -62,7 +62,7 @@ LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteL
 
 2. **Module Docstring = System Prompt**: Class docstring becomes system prompt (cleaner API). For branches, docstring is appended to parent's prompt.
 
-3. **`__finish__` is the ONLY Output Path**: Structured output always via tool call. XML output only as fallback when `tool_choice` unsupported.
+3. **`__finish__` is the ONLY Output Path**: Structured output always via tool call. When a forced `tool_choice` is unsupported, the model is asked to call `__finish__` in a message.
 
 4. **History is Mutable**: Full access to `self.history` in `on_step` - add/modify/remove messages.
 

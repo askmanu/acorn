@@ -145,11 +145,12 @@ This is useful for:
 
 ### temperature
 
-Controls randomness in responses (0.0-1.0). Lower = more deterministic.
+Controls randomness in responses (0.0-1.0). Lower = more deterministic. Left unset (`None`), it isn't sent: some models accept only their default (Claude Haiku 5.5, Sonnet 5.5 and Opus 5.5 reject any other value).
 
 ```python
 temperature = 0.3  # Precise, consistent outputs
-temperature = 0.7  # Default, balanced
+temperature = 0.7  # Balanced
+temperature = None  # Default: not sent, so the provider's default applies
 temperature = 1.0  # Creative, varied outputs
 ```
 

@@ -18,7 +18,7 @@ def test_module_instantiation():
     mod = SimpleModule()
     assert mod is not None
     assert mod.model == "test-model"
-    assert mod.temperature == 0.7
+    assert mod.temperature is None
     assert mod.max_tokens is None
 
 
