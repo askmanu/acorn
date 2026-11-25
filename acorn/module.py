@@ -9,7 +9,14 @@ from pydantic import BaseModel
 import litellm
 
 from acorn.discovery import ToolRegistry
-from acorn.exceptions import AcornError, BranchError, ParseError, ServiceError, ToolConflictError
+from acorn.exceptions import (
+    AcornError,
+    BranchError,
+    ParseError,
+    ServiceError,
+    ToolConflictError,
+    TruncatedOutputError,
+)
 from acorn.service import Service
 from acorn.serialization import pydantic_to_xml
 from acorn.tool_schema import generate_tool_schema
@@ -500,15 +507,7 @@ class Module:
         )
 
         # Add assistant response to history
-        assistant_message = {
-            "role": "assistant",
-            "content": response.get("content"),
-        }
-        if response.get("reasoning_content"):
-            assistant_message["reasoning_content"] = response["reasoning_content"]
-        if response.get("tool_calls"):
-            assistant_message["tool_calls"] = response["tool_calls"]
-        self.history.append(assistant_message)
+        self.history.append(self._assistant_message(response))
 
         # 6. Handle response - retry if no tool calls
         no_tool_call_retries = 0
@@ -544,15 +543,9 @@ class Module:
                 cache=self.cache,
                 model_fallbacks=self.model_fallbacks or None,
             )
-            assistant_message = {
-                "role": "assistant",
-                "content": response.get("content"),
-            }
-            if response.get("reasoning_content"):
-                assistant_message["reasoning_content"] = response["reasoning_content"]
-            if response.get("tool_calls"):
-                assistant_message["tool_calls"] = response["tool_calls"]
-            self.history.append(assistant_message)
+            self.history.append(self._assistant_message(response))
+
+        self._raise_if_truncated_finish(response)
 
         tool_call = response["tool_calls"][0]
 
@@ -563,7 +556,6 @@ class Module:
 
         # 7. Validate __finish__ arguments (with retries)
         return await self._validate_and_retry(
-            messages,
             tool_schemas,
             tool_call,
             attempt=0
@@ -673,23 +665,12 @@ class Module:
             )
 
             # Add assistant message to history
-            assistant_message = {
-                "role": "assistant",
-                "content": response.get("content"),
-            }
-
-            # Add reasoning_content if present
-            if response.get("reasoning_content"):
-                assistant_message["reasoning_content"] = response["reasoning_content"]
-
-            # Add tool calls to assistant message if present
-            if response.get("tool_calls"):
-                assistant_message["tool_calls"] = response["tool_calls"]
-
-            self.history.append(assistant_message)
+            self.history.append(self._assistant_message(response))
 
             # Get tool calls
             tool_calls = response.get("tool_calls", [])
+
+            self._raise_if_truncated_finish(response)
 
             if not tool_calls:
                 no_tool_call_retries += 1
@@ -887,17 +868,74 @@ class Module:
 
         return {"role": "system", "content": prompt_text}
 
+    def _assistant_message(self, response: dict) -> dict:
+        """Build a history message for an LLM response.
+
+        Besides the fields providers accept, ``finish_reason`` and ``usage``
+        are kept so callers can audit every call through ``self.history``.
+        ``call_llm`` strips those keys before sending messages back.
+
+        Args:
+            response: Response dict from ``call_llm``
+
+        Returns:
+            Assistant message dictionary
+        """
+        message = {
+            "role": "assistant",
+            "content": response.get("content"),
+        }
+        if response.get("reasoning_content"):
+            message["reasoning_content"] = response["reasoning_content"]
+        if response.get("tool_calls"):
+            message["tool_calls"] = response["tool_calls"]
+        if response.get("finish_reason"):
+            message["finish_reason"] = response["finish_reason"]
+        if response.get("usage"):
+            message["usage"] = response["usage"]
+        return message
+
+    def _raise_if_truncated_finish(self, response: dict) -> None:
+        """Refuse a ``__finish__`` call from a truncated response.
+
+        A response cut off at the token limit can still carry a syntactically
+        valid ``__finish__`` call with partial arguments (for example ``{}``).
+        Accepting it would return an empty or incomplete result as if the model
+        had deliberately produced it.
+
+        Raises:
+            TruncatedOutputError: If ``finish_reason == "length"`` and the
+                response contains a ``__finish__`` tool call
+        """
+        if response.get("finish_reason") != "length":
+            return
+
+        for tool_call in response.get("tool_calls") or []:
+            if tool_call["function"]["name"] != "__finish__":
+                continue
+            raw_output = tool_call["function"]["arguments"]
+            token_limit = self.max_tokens or self.max_completion_tokens
+            limit_text = f" at max_tokens={token_limit}" if token_limit else ""
+            raise TruncatedOutputError(
+                f"The model's __finish__ output was truncated{limit_text} "
+                f"(finish_reason='length'). Increase max_tokens or reduce the size "
+                f"of final_output. Raw arguments: {raw_output!r}",
+                token_limit=token_limit,
+                raw_output=raw_output,
+            )
+
     async def _validate_and_retry(
         self,
-        messages: list[dict],
         tool_schemas: list[dict],
         tool_call: dict,
         attempt: int
     ) -> BaseModel:
         """Validate __finish__ output with retry logic.
 
+        The retry exchange is appended to ``self.history`` so callers can audit
+        what was sent back to the model and how it replied.
+
         Args:
-            messages: Message history
             tool_schemas: Available tool schemas
             tool_call: The __finish__ tool call to validate
             attempt: Current retry attempt number
@@ -907,6 +945,7 @@ class Module:
 
         Raises:
             ParseError: If validation fails after all retries
+            TruncatedOutputError: If a retry reply was cut off at the token limit
         """
         try:
             arguments = json.loads(tool_call["function"]["arguments"])
@@ -921,19 +960,20 @@ class Module:
                     raw_output=tool_call["function"]["arguments"]
                 )
 
-            # Add error message and retry
-            error_msg = {
-                "role": "user",
-                "content": f"Error: Output validation failed: {e}\n\nPlease call __finish__ again with valid arguments matching the schema."
-            }
-            retry_messages = messages + [
-                {"role": "assistant", "content": tool_call["function"]["name"]},
-                error_msg
-            ]
+            # Add error message and retry. The __finish__ call is already the
+            # last assistant message in history, so answer it with a tool result.
+            self.history.append({
+                "role": "tool",
+                "tool_call_id": tool_call.get("id"),
+                "content": (
+                    f"Error: Output validation failed: {e}\n\nPlease call __finish__ "
+                    f"again with valid arguments matching the schema."
+                ),
+            })
 
             # Retry LLM call
             response = await call_llm(
-                messages=retry_messages,
+                messages=self.history,
                 model=self.model,
                 tools=tool_schemas,
                 temperature=self.temperature,
@@ -947,6 +987,8 @@ class Module:
                 cache=self.cache,
                 model_fallbacks=self.model_fallbacks or None,
             )
+            self.history.append(self._assistant_message(response))
+            self._raise_if_truncated_finish(response)
 
             if not response.get("tool_calls"):
                 raise ParseError(
@@ -964,7 +1006,6 @@ class Module:
 
             # Recursive retry
             return await self._validate_and_retry(
-                retry_messages,
                 tool_schemas,
                 retry_tool_call,
                 attempt + 1
@@ -1240,8 +1281,12 @@ class Module:
         # Execute branch
         try:
             result = await branch_instance(**kwargs)
+        except (ParseError, TruncatedOutputError):
+            # Structured-output failures stay typed so callers can tell a
+            # truncated branch from a generic branch failure.
+            raise
         except Exception as e:
-            raise BranchError(f"Branch execution failed: {e}")
+            raise BranchError(f"Branch execution failed: {e}") from e
 
         # Apply merge strategy
         if result is None and merge == "end_result":
@@ -1528,7 +1573,10 @@ class Module:
                 model_fallbacks=self.model_fallbacks or None,
             )
 
-            # Process the response
+            # Record the forced call, then process the response
+            self.history.append(self._assistant_message(response))
+            self._raise_if_truncated_finish(response)
+
             if response.get("tool_calls"):
                 tool_call = response["tool_calls"][0]
                 if tool_call["function"]["name"] == "__finish__":
@@ -1546,7 +1594,7 @@ class Module:
                             error=e
                         )
 
-        except ParseError:
+        except (ParseError, TruncatedOutputError):
             raise
         except Exception:
             # Forced tool_choice not supported (e.g. Claude Sonnet/Opus 5.5) or the call
@@ -1564,8 +1612,8 @@ class Module:
         """Ask for __finish__ in a message, for models that reject a forced tool_choice.
 
         Other tool calls are answered with an error and not run. Gives up after
-        max_parse_retries further attempts. The exchange is kept in a local
-        history; self.history is not modified.
+        max_parse_retries further attempts. The exchange is appended to
+        ``self.history`` so the trace matches what the model saw and returned.
 
         Raises:
             AcornError: If the model doesn't call __finish__ with valid arguments
@@ -1574,11 +1622,11 @@ class Module:
             f"You have reached the step limit ({self.max_steps}). "
             "Do not call any other tool. Call __finish__ now with your final output."
         )
-        history = self.history + [{"role": "user", "content": instruction}]
+        self.history.append({"role": "user", "content": instruction})
         error: Exception | str = "no __finish__ call"
         for _ in range(self.max_parse_retries + 1):
             response = await call_llm(
-                messages=history,
+                messages=self.history,
                 model=self.model,
                 tools=tool_schemas,
                 temperature=self.temperature,
@@ -1593,12 +1641,8 @@ class Module:
                 model_fallbacks=self.model_fallbacks or None,
             )
             tool_calls = response.get("tool_calls") or []
-            assistant_message = {"role": "assistant", "content": response.get("content")}
-            if response.get("reasoning_content"):
-                assistant_message["reasoning_content"] = response["reasoning_content"]
-            if tool_calls:
-                assistant_message["tool_calls"] = tool_calls
-            history.append(assistant_message)
+            self.history.append(self._assistant_message(response))
+            self._raise_if_truncated_finish(response)
 
             for tool_call in tool_calls:
                 if tool_call["function"]["name"] != "__finish__":
@@ -1619,11 +1663,11 @@ class Module:
                         else "Error: step limit reached; this tool was not run. "
                         "Call __finish__ now."
                     )
-                    history.append(
+                    self.history.append(
                         {"role": "tool", "tool_call_id": tool_call["id"], "content": content}
                     )
             else:
-                history.append({"role": "user", "content": instruction})
+                self.history.append({"role": "user", "content": instruction})
 
         raise AcornError(
             f"Module reached max_steps ({self.max_steps}) and did not call __finish__ with valid "
@@ -1659,20 +1703,18 @@ class Module:
             )
 
         # Add error message and retry
-        error_msg = {
-            "role": "user",
-            "content": f"Error: Output validation failed: {error}\n\nPlease call __finish__ again with valid arguments matching the schema."
-        }
-
-        # Add assistant message and error to history
-        retry_history = self.history + [
-            {"role": "assistant", "tool_calls": [tool_call]},
-            {"role": "tool", "tool_call_id": tool_call["id"], "content": error_msg["content"]}
-        ]
+        self.history.append({
+            "role": "tool",
+            "tool_call_id": tool_call.get("id"),
+            "content": (
+                f"Error: Output validation failed: {error}\n\nPlease call __finish__ "
+                f"again with valid arguments matching the schema."
+            ),
+        })
 
         # Retry with tool_choice
         response = await call_llm(
-            messages=retry_history,
+            messages=self.history,
             model=self.model,
             tools=tool_schemas,
             temperature=self.temperature,
@@ -1687,6 +1729,8 @@ class Module:
             cache=self.cache,
             model_fallbacks=self.model_fallbacks or None,
         )
+        self.history.append(self._assistant_message(response))
+        self._raise_if_truncated_finish(response)
 
         if not response.get("tool_calls"):
             raise ParseError(

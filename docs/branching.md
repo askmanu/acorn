@@ -312,6 +312,7 @@ branch() returned error: Branch execution failed: API timeout
 
 **Manual branching** (`self.branch()`):
 - Exception raised (BranchError)
+- Structured-output failures propagate unchanged: `ParseError` and `TruncatedOutputError` are raised as-is, so callers can tell an invalid or token-truncated branch result from a generic failure
 - Handle in your callback:
 
 ```python

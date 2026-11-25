@@ -6,6 +6,7 @@ from acorn.exceptions import (
     ParseError,
     BranchError,
     ToolConflictError,
+    TruncatedOutputError,
 )
 
 
@@ -46,11 +47,23 @@ def test_tool_conflict_error():
     assert isinstance(error, AcornError)
 
 
+def test_truncated_output_error():
+    """Test TruncatedOutputError carries the limit and raw arguments."""
+    error = TruncatedOutputError(
+        "output truncated", token_limit=16000, raw_output="{}"
+    )
+    assert str(error) == "output truncated"
+    assert error.token_limit == 16000
+    assert error.raw_output == "{}"
+    assert isinstance(error, AcornError)
+
+
 def test_exception_hierarchy():
     """Test that all exceptions inherit from AcornError."""
     assert issubclass(ParseError, AcornError)
     assert issubclass(BranchError, AcornError)
     assert issubclass(ToolConflictError, AcornError)
+    assert issubclass(TruncatedOutputError, AcornError)
 
 
 def test_exception_catching():

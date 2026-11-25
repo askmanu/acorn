@@ -1182,10 +1182,15 @@ History is a list of message dicts:
 [
     {"role": "system", "content": "..."},
     {"role": "user", "content": "..."},
-    {"role": "assistant", "content": "...", "tool_calls": [...]},
+    {"role": "assistant", "content": "...", "tool_calls": [...],
+     "finish_reason": "tool_calls", "usage": {"prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160}},
     {"role": "tool", "tool_call_id": "...", "content": "..."}
 ]
 ```
+
+Assistant messages also record `finish_reason` and token `usage` for auditing. These keys are stripped before the history is sent back to the provider.
+
+Parse retries are kept in the history: a failed `__finish__` call is followed by the `tool` error message and the model's corrected reply, so a stored history shows the complete exchange. The same applies to forced termination at `max_steps`, including the step-limit instruction and its replies.
 
 ## Error Handling
 
@@ -1219,6 +1224,22 @@ class BadModule(Module):
 
 # Raises: ToolConflictError: Duplicate tool name: search
 ```
+
+### TruncatedOutputError
+
+Raised when the model's output was cut off at the token limit (`finish_reason == "length"`) while writing the `__finish__` call. Truncated arguments can still be valid JSON — often `{}` — so accepting them would silently return an empty or partial result.
+
+```python
+from acorn import TruncatedOutputError
+
+try:
+    result = await module(text="...")
+except TruncatedOutputError as e:
+    print(f"Output truncated at {e.token_limit} tokens")
+    print(f"Raw arguments: {e.raw_output}")
+```
+
+Increase `max_tokens` or reduce the size of `final_output`; retrying with the same limit will usually be truncated again.
 
 ### AcornError
 
