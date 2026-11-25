@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from pydantic import BaseModel
 
 from acorn import Module, tool
-from acorn.exceptions import AcornError
+from acorn.exceptions import AcornError, ParseError
 
 
 class MockResponse:
@@ -236,6 +236,39 @@ async def test_agentic_loop_max_steps_forced_termination_raises_error():
 
         with pytest.raises(AcornError, match="reached max_steps"):
             await mod()
+
+
+async def test_agentic_loop_max_steps_forced_termination_validation_raises_parse_error():
+    """Test invalid forced termination output raises ParseError, not a step-limit error."""
+    @tool
+    def endless_tool() -> str:
+        """A tool that keeps running."""
+        return "continue"
+
+    class Output(BaseModel):
+        result: int
+
+    class EndlessModule(Module):
+        model = "test-model"
+        max_steps = 1
+        tools = [endless_tool]
+        final_output = Output
+        max_parse_retries = 1
+
+    acompletion = 'acorn.llm.litellm_client.litellm.acompletion'
+    with patch(acompletion, new_callable=AsyncMock) as mock_completion:
+        endless_call = create_tool_call("endless_tool", {}, "call_1")
+        invalid_finish = create_tool_call("__finish__", {"result": "not-an-int"}, "call_finish")
+
+        # Step 1, then the forced call and one retry, all with invalid output
+        mock_completion.side_effect = [
+            MockResponse(tool_calls=[endless_call]),
+            MockResponse(tool_calls=[invalid_finish]),
+            MockResponse(tool_calls=[invalid_finish]),
+        ]
+
+        with pytest.raises(ParseError, match="Failed to validate forced output"):
+            await EndlessModule()()
 
 
 async def test_agentic_loop_history_accumulates():

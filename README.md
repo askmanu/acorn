@@ -49,6 +49,15 @@ Do NOT change the class definitions themselves, only the call sites.
 ```
 ---
 
+> [!WARNING]
+> Changed in v0.9.0: Explicit Prompts and Provider-Default Temperature.
+>
+> `temperature` now defaults to `None`, so Acorn doesn't send it unless you set it. Previously it sent `0.7`; set `temperature = 0.7` explicitly to keep the old behavior. Some models, including Claude Haiku/Sonnet/Opus 5.5, accept only their default.
+>
+> Class docstrings are not system prompts. Set `system_prompt` explicitly; docstrings remain the descriptions for branches and services.
+
+---
+
 ## 🚀 Quick Start
 
 ### Installation
@@ -200,7 +209,7 @@ result = agent.run(topic="Large Language Models", depth="shallow")
 ### Module
 Base class for LLM agents. Configure with:
 - `model` - LLM to use (required - no default)
-- `temperature` - Sampling temperature
+- `temperature` - Sampling temperature (unset by default, so the provider's default applies)
 - `max_tokens` - Maximum tokens to generate
 - `max_steps` - Max agentic loop iterations (None = single-turn)
 - `initial_input` - Pydantic model for input schema

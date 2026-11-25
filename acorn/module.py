@@ -75,7 +75,8 @@ class Module:
                    "reasoning": True | "low" | "medium" | "high",  # optional
                    "litellm_params": {"key": "value"},  # optional, forwarded to litellm
                }
-        temperature: Sampling temperature (0.0-1.0)
+        temperature: Sampling temperature (0.0-1.0); None (default) leaves it to the provider.
+            Some models accept only their default (Claude Haiku/Sonnet 5.5, Opus 5.5).
         max_tokens: Maximum tokens to generate
         max_steps: Maximum agentic steps (None = single-turn)
 
@@ -111,7 +112,7 @@ class Module:
 
     # Default configuration
     model: str | dict = ""
-    temperature: float = 0.7
+    temperature: float | None = None
     max_tokens: int | None = None
     max_completion_tokens: int | None = None
     top_p: float | None = None
@@ -856,6 +857,8 @@ class Module:
     def _build_system_message(self) -> dict:
         """Build the system message from system_prompt.
 
+        Class docstrings are not used as prompts; branches and services use them as descriptions.
+
         Returns:
             System message dictionary
         """
@@ -1298,7 +1301,7 @@ class Module:
             messages=summary_messages,
             model=branch_instance.model,
             tools=None,
-            temperature=0.3,
+            temperature=branch_instance.temperature,
             max_tokens=branch_instance.max_tokens,
         )
 
@@ -1483,15 +1486,17 @@ class Module:
             return generate_tool_schema(tool)
 
     async def _force_termination(self) -> BaseModel | None:
-        """Force termination at max_steps by requiring __finish__ call.
+        """Force termination at max_steps by requiring a __finish__ call.
 
-        Primary strategy: Use tool_choice to force __finish__ (preserves cache)
-        Fallback strategy: Append XML instruction if tool_choice fails
+        Primary strategy: use tool_choice to force __finish__ (preserves cache).
+        Fallback strategy: when the provider rejects a forced tool_choice, ask for
+        __finish__ in a message instead (see _finish_by_instruction).
 
         Returns:
             Validated output model, or None if no final_output defined
 
         Raises:
+            ParseError: If a forced __finish__ call fails validation after retries
             AcornError: If the model did not call __finish__ within max_steps
         """
         # If no final_output, just return None
@@ -1541,15 +1546,88 @@ class Module:
                             error=e
                         )
 
+        except ParseError:
+            raise
         except Exception:
-            # tool_choice not supported or failed - fall through to error
-            pass
+            # Forced tool_choice not supported (e.g. Claude Sonnet/Opus 5.5) or the call
+            # failed: ask for __finish__ in a message instead.
+            return await self._finish_by_instruction(tool_schemas)
 
         # Force termination failed — raise a clear error
         raise AcornError(
             f"Module reached max_steps ({self.max_steps}) without calling __finish__. "
             f"The model did not produce a final output in the allowed number of steps. "
             f"Consider increasing max_steps or simplifying the task."
+        )
+
+    async def _finish_by_instruction(self, tool_schemas: list[dict]) -> BaseModel:
+        """Ask for __finish__ in a message, for models that reject a forced tool_choice.
+
+        Other tool calls are answered with an error and not run. Gives up after
+        max_parse_retries further attempts. The exchange is kept in a local
+        history; self.history is not modified.
+
+        Raises:
+            AcornError: If the model doesn't call __finish__ with valid arguments
+        """
+        instruction = (
+            f"You have reached the step limit ({self.max_steps}). "
+            "Do not call any other tool. Call __finish__ now with your final output."
+        )
+        history = self.history + [{"role": "user", "content": instruction}]
+        error: Exception | str = "no __finish__ call"
+        for _ in range(self.max_parse_retries + 1):
+            response = await call_llm(
+                messages=history,
+                model=self.model,
+                tools=tool_schemas,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                max_completion_tokens=self.max_completion_tokens,
+                top_p=self.top_p,
+                stop=self.stop,
+                presence_penalty=self.presence_penalty,
+                stream_options=self.stream_options,
+                metadata=self.metadata,
+                cache=self.cache,
+                model_fallbacks=self.model_fallbacks or None,
+            )
+            tool_calls = response.get("tool_calls") or []
+            assistant_message = {"role": "assistant", "content": response.get("content")}
+            if response.get("reasoning_content"):
+                assistant_message["reasoning_content"] = response["reasoning_content"]
+            if tool_calls:
+                assistant_message["tool_calls"] = tool_calls
+            history.append(assistant_message)
+
+            for tool_call in tool_calls:
+                if tool_call["function"]["name"] != "__finish__":
+                    continue
+                try:
+                    arguments = json.loads(tool_call["function"]["arguments"])
+                    result = self.final_output(**arguments)
+                    return result
+                except Exception as e:
+                    error = e
+
+            if tool_calls:
+                for tool_call in tool_calls:
+                    content = (
+                        f"Error: Output validation failed: {error}. "
+                        "Call __finish__ again with valid arguments."
+                        if tool_call["function"]["name"] == "__finish__"
+                        else "Error: step limit reached; this tool was not run. "
+                        "Call __finish__ now."
+                    )
+                    history.append(
+                        {"role": "tool", "tool_call_id": tool_call["id"], "content": content}
+                    )
+            else:
+                history.append({"role": "user", "content": instruction})
+
+        raise AcornError(
+            f"Module reached max_steps ({self.max_steps}) and did not call __finish__ with valid "
+            f"output after {self.max_parse_retries + 1} requests: {error}"
         )
 
     async def _retry_forced_finish(

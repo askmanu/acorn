@@ -71,7 +71,7 @@ class Step:
         self,
         counter: int,
         model: str | dict,
-        temperature: float,
+        temperature: float | None,
         max_tokens: int,
         tools: list,
         response: dict,
