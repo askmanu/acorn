@@ -667,8 +667,9 @@ class TestBranchErrors:
                 {"role": "system", "content": "Parent"},
                 {"role": "user", "content": "test"}
             ]
-            with pytest.raises(BranchError, match="Branch execution failed"):
+            with pytest.raises(BranchError, match="Branch execution failed") as excinfo:
                 await mod._execute_branch(FailingBranch, "end_result", claim="test")
+            assert excinfo.value.__cause__ is not None
 
 
 # =============================================================================

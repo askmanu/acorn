@@ -112,11 +112,47 @@ async def test_parse_retry_includes_error_message():
         second_call_args = mock_completion.call_args_list[1]
         messages = second_call_args.kwargs["messages"]
 
-        # Should have error message
+        # The failed __finish__ call is answered with a tool result
         error_msg = messages[-1]
-        assert error_msg["role"] == "user"
+        assert error_msg["role"] == "tool"
+        assert error_msg["tool_call_id"] == "call_123"
         assert "Error" in error_msg["content"]
         assert "validation failed" in error_msg["content"]
+
+
+async def test_parse_retry_exchange_is_kept_in_history():
+    """Test that the retry exchange is part of the auditable history."""
+    class Output(BaseModel):
+        count: int
+
+    class TestModule(Module):
+        model = "test-model"
+        final_output = Output
+        max_parse_retries = 1
+
+    with patch('acorn.llm.litellm_client.litellm.acompletion') as mock_completion:
+        invalid_call = create_tool_call("__finish__", {"count": "bad"})
+        valid_call = create_tool_call("__finish__", {"count": 10})
+
+        mock_completion.side_effect = [
+            MockResponse(tool_calls=[invalid_call]),
+            MockResponse(tool_calls=[valid_call])
+        ]
+
+        mod = TestModule()
+        result = await mod()
+
+        assert result.count == 10
+
+        # system, user, invalid __finish__, tool error, corrected __finish__
+        assert [m["role"] for m in mod.history] == [
+            "system", "user", "assistant", "tool", "assistant"
+        ]
+        assert mod.history[2]["tool_calls"][0]["function"]["arguments"] == '{"count": "bad"}'
+        assert mod.history[3]["tool_call_id"] == "call_123"
+        assert "validation failed" in mod.history[3]["content"]
+        assert mod.history[4]["tool_calls"][0]["function"]["arguments"] == '{"count": 10}'
+        assert mod.history[4]["finish_reason"] == "stop"
 
 
 async def test_parse_retry_with_zero_retries():

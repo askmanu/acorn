@@ -124,8 +124,10 @@ async def test_instruction_answers_other_tool_calls_without_running_them():
             "tool_call_id": "call_1",
             "content": "Error: step limit reached; this tool was not run. Call __finish__ now.",
         }
-        # The fallback exchange stays local; public history ends at the last loop step.
-        assert all("step limit" not in str(msg.get("content")) for msg in mod.history)
+        # The fallback exchange is part of history: the trace matches what the
+        # model saw and returned.
+        assert any("step limit" in str(msg.get("content")) for msg in mod.history)
+        assert mod.history[-1]["tool_calls"][0]["function"]["name"] == "__finish__"
 
 
 async def test_max_steps_instruction_gives_up_after_retries():
@@ -146,4 +148,6 @@ async def test_max_steps_instruction_gives_up_after_retries():
 
         # Step 1, the forced attempt, and one instruction attempt
         assert mock.call_count == 3
-        assert all("step limit" not in str(msg.get("content")) for msg in mod.history)
+        # The instruction and the rejected tool call are kept in history.
+        assert any("step limit" in str(msg.get("content")) for msg in mod.history)
+        assert any(msg.get("role") == "tool" for msg in mod.history)

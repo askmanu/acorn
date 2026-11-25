@@ -35,6 +35,47 @@ def _translate_model_to_litellm(model: str | dict) -> str | dict:
     return result
 
 
+# Keys Acorn keeps on history messages for auditing. They are not part of any
+# provider's message schema, so they are stripped before the request.
+_HISTORY_ONLY_MESSAGE_KEYS = ("finish_reason", "usage")
+
+
+def _strip_history_metadata(messages: list[dict]) -> list[dict]:
+    """Remove audit-only keys that providers reject from messages.
+
+    Module history keeps ``finish_reason`` and ``usage`` on assistant messages
+    so callers can audit calls. Neither belongs in a chat API message, so drop
+    them before sending. Messages without those keys are returned unchanged.
+    """
+    cleaned = []
+    for message in messages:
+        if any(key in message for key in _HISTORY_ONLY_MESSAGE_KEYS):
+            message = {
+                key: value
+                for key, value in message.items()
+                if key not in _HISTORY_ONLY_MESSAGE_KEYS
+            }
+        cleaned.append(message)
+    return cleaned
+
+
+def _usage_to_dict(usage: Any) -> dict | None:
+    """Convert a provider usage object to a plain dict, if possible."""
+    if not usage:
+        return None
+    if isinstance(usage, dict):
+        return usage
+    model_dump = getattr(usage, "model_dump", None)
+    if callable(model_dump):
+        try:
+            dumped = model_dump()
+        except Exception:
+            dumped = None
+        if isinstance(dumped, dict):
+            return dumped
+    return None
+
+
 async def call_llm(
     messages: list[dict],
     model: str | dict,
@@ -84,6 +125,10 @@ async def call_llm(
     Raises:
         Exception: If the LLM call fails
     """
+    # History may carry audit-only keys (finish_reason, usage) that providers
+    # reject; strip them before building the request.
+    messages = _strip_history_metadata(messages)
+
     # Build kwargs for litellm
     if isinstance(model, str):
         kwargs = {
@@ -296,6 +341,11 @@ def _response_to_dict(response: Any) -> dict:
     # Add finish reason
     result["finish_reason"] = response.choices[0].finish_reason
 
+    # Add token usage if present
+    usage = _usage_to_dict(getattr(response, "usage", None))
+    if usage:
+        result["usage"] = usage
+
     return result
 
 
@@ -318,6 +368,7 @@ async def _handle_streaming_response(
     accumulated_reasoning_content = ""
     accumulated_tool_calls = []
     finish_reason = None
+    usage = None
 
     is_async_callback = asyncio.iscoroutinefunction(on_stream)
 
@@ -328,6 +379,16 @@ async def _handle_streaming_response(
             on_stream(chunk)
 
     async for chunk in response:
+        # Usage arrives on its own chunk (stream_options={"include_usage": True})
+        # which has no choices, so read it before inspecting the delta.
+        chunk_usage = _usage_to_dict(getattr(chunk, "usage", None))
+        if chunk_usage:
+            usage = chunk_usage
+
+        # finish_reason can arrive on a chunk without a delta, so read it first.
+        if chunk.choices and chunk.choices[0].finish_reason:
+            finish_reason = chunk.choices[0].finish_reason
+
         # Get delta from chunk
         delta = chunk.choices[0].delta if chunk.choices else None
 
@@ -400,10 +461,6 @@ async def _handle_streaming_response(
                     )
                     await _call_on_stream(stream_chunk)
 
-        # Get finish reason
-        if hasattr(chunk.choices[0], "finish_reason") and chunk.choices[0].finish_reason:
-            finish_reason = chunk.choices[0].finish_reason
-
     # Send final chunk
     final_chunk = StreamChunk(done=True)
     await _call_on_stream(final_chunk)
@@ -418,6 +475,10 @@ async def _handle_streaming_response(
     # Add reasoning_content if any
     if accumulated_reasoning_content:
         result["reasoning_content"] = accumulated_reasoning_content
+
+    # Add token usage if any
+    if usage:
+        result["usage"] = usage
 
     # Add tool calls if any
     if accumulated_tool_calls:
@@ -434,6 +495,7 @@ async def _handle_streaming_response(
 
     return result
 
+
 async def _accumulate_streaming_response(response) -> dict:
     """Accumulate streaming response without callback.
 
@@ -447,8 +509,19 @@ async def _accumulate_streaming_response(response) -> dict:
     accumulated_reasoning_content = ""
     accumulated_tool_calls = []
     finish_reason = None
+    usage = None
 
     async for chunk in response:
+        # Usage arrives on its own chunk (stream_options={"include_usage": True})
+        # which has no choices, so read it before inspecting the delta.
+        chunk_usage = _usage_to_dict(getattr(chunk, "usage", None))
+        if chunk_usage:
+            usage = chunk_usage
+
+        # finish_reason can arrive on a chunk without a delta, so read it first.
+        if chunk.choices and chunk.choices[0].finish_reason:
+            finish_reason = chunk.choices[0].finish_reason
+
         # Get delta from chunk
         delta = chunk.choices[0].delta if chunk.choices else None
 
@@ -489,10 +562,6 @@ async def _accumulate_streaming_response(response) -> dict:
                     if hasattr(tc_delta.function, "arguments") and tc_delta.function.arguments:
                         accumulated_tool_calls[idx]["function"]["arguments"] += tc_delta.function.arguments
 
-        # Get finish reason
-        if hasattr(chunk.choices[0], "finish_reason") and chunk.choices[0].finish_reason:
-            finish_reason = chunk.choices[0].finish_reason
-
     # Build accumulated response
     result = {
         "role": "assistant",
@@ -503,6 +572,10 @@ async def _accumulate_streaming_response(response) -> dict:
     # Add reasoning_content if any
     if accumulated_reasoning_content:
         result["reasoning_content"] = accumulated_reasoning_content
+
+    # Add token usage if any
+    if usage:
+        result["usage"] = usage
 
     # Add tool calls if any
     if accumulated_tool_calls:

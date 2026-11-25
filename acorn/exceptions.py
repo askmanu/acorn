@@ -21,6 +21,26 @@ class ParseError(AcornError):
         self.raw_output = raw_output
 
 
+class TruncatedOutputError(AcornError):
+    """Raised when the model's output was cut off at the token limit.
+
+    This exception is raised when a response has ``finish_reason == "length"``
+    and contains a ``__finish__`` tool call. Truncated arguments can still be
+    valid JSON (for example ``{}``), so accepting them would silently return
+    an empty or partial result.
+
+    Attributes:
+        message: Human-readable error description
+        token_limit: Configured ``max_tokens``/``max_completion_tokens``, if any
+        raw_output: The raw ``__finish__`` arguments that were cut off (optional)
+    """
+
+    def __init__(self, message: str, token_limit: int | None = None, raw_output: any = None):
+        super().__init__(message)
+        self.token_limit = token_limit
+        self.raw_output = raw_output
+
+
 class BranchError(AcornError):
     """Raised when branch execution fails.
 
