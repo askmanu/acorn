@@ -857,6 +857,8 @@ class Module:
     def _build_system_message(self) -> dict:
         """Build the system message from system_prompt.
 
+        Class docstrings are not used as prompts; branches and services use them as descriptions.
+
         Returns:
             System message dictionary
         """
@@ -879,10 +881,6 @@ class Module:
         elif callable(getattr(self.__class__, 'system_prompt', None)):
             # Call class method
             prompt_text = self.system_prompt()
-        elif self.__class__.__doc__:
-            # The subclass's own docstring (class docstrings aren't inherited)
-            import inspect
-            prompt_text = inspect.cleandoc(self.__class__.__doc__)
         else:
             # No system prompt
             prompt_text = ""
@@ -1488,15 +1486,17 @@ class Module:
             return generate_tool_schema(tool)
 
     async def _force_termination(self) -> BaseModel | None:
-        """Force termination at max_steps by requiring __finish__ call.
+        """Force termination at max_steps by requiring a __finish__ call.
 
-        Primary strategy: Use tool_choice to force __finish__ (preserves cache)
-        Fallback strategy: Append XML instruction if tool_choice fails
+        Primary strategy: use tool_choice to force __finish__ (preserves cache).
+        Fallback strategy: when the provider rejects a forced tool_choice, ask for
+        __finish__ in a message instead (see _finish_by_instruction).
 
         Returns:
             Validated output model, or None if no final_output defined
 
         Raises:
+            ParseError: If a forced __finish__ call fails validation after retries
             AcornError: If the model did not call __finish__ within max_steps
         """
         # If no final_output, just return None
@@ -1564,7 +1564,8 @@ class Module:
         """Ask for __finish__ in a message, for models that reject a forced tool_choice.
 
         Other tool calls are answered with an error and not run. Gives up after
-        max_parse_retries further attempts.
+        max_parse_retries further attempts. The exchange is kept in a local
+        history; self.history is not modified.
 
         Raises:
             AcornError: If the model doesn't call __finish__ with valid arguments
@@ -1605,7 +1606,6 @@ class Module:
                 try:
                     arguments = json.loads(tool_call["function"]["arguments"])
                     result = self.final_output(**arguments)
-                    self.history = history
                     return result
                 except Exception as e:
                     error = e
@@ -1625,7 +1625,6 @@ class Module:
             else:
                 history.append({"role": "user", "content": instruction})
 
-        self.history = history
         raise AcornError(
             f"Module reached max_steps ({self.max_steps}) and did not call __finish__ with valid "
             f"output after {self.max_parse_retries + 1} requests: {error}"

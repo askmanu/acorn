@@ -50,7 +50,7 @@ LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteL
 
 ### Branching (Extend, Not Replace)
 - Branches EXTEND parent modules, not replace them
-- Inherit: system prompt (appended), tools (added), full history
+- Inherit: full parent history (system message excluded); parent tools via `call_parent_tool()`
 - No `initial_input` - context from inherited history
 - Must define `final_output` for structured return
 - Registered in `branches = {"name": BranchModule}`
@@ -60,7 +60,7 @@ LLM agent framework with structured I/O. Built on Pydantic for schemas and LiteL
 
 1. **XML for Data, Not Prompts**: XML only for structured I/O with LLM (internal). System prompts are Markdown. Users never write XML.
 
-2. **Module Docstring = System Prompt**: Class docstring becomes system prompt (cleaner API). For branches, docstring is appended to parent's prompt.
+2. **System Prompt is Explicit**: Set via `system_prompt` (string, `Path`, method, or `Template`). Class docstrings are not prompts; branches and services use them as descriptions.
 
 3. **`__finish__` is the ONLY Output Path**: Structured output always via tool call. When a forced `tool_choice` is unsupported, the model is asked to call `__finish__` in a message.
 

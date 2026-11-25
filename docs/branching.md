@@ -75,6 +75,8 @@ class FactCheckBranch(Module):
     tools = [search_academic]  # Branch-specific tools
 ```
 
+**Note**: The branch class docstring is used as the branch description shown by `branch()` discovery. It is not used as a system prompt; set `system_prompt` explicitly for instructions.
+
 **Key attributes:**
 
 - `initial_input`: Defines what parameters the branch accepts when called (optional)

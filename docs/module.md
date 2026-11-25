@@ -173,6 +173,8 @@ max_steps = 5     # Up to 5 iterations
 max_steps = 20    # Longer tasks
 ```
 
+When the step limit is reached, Acorn asks the model for its final output: first with a forced `__finish__` tool choice, and if the provider rejects that, by asking for `__finish__` in a message. If the model still doesn't produce valid output, the run raises `AcornError`, or `ParseError` when a forced `__finish__` call failed validation.
+
 ### cache
 
 Enable provider-level prompt caching to reduce latency and cost:
@@ -313,26 +315,16 @@ result = executor.run()  # Returns None after executing tools
 
 ## System Prompt
 
-Instructions for the LLM. Five ways to set it:
+Instructions for the LLM. Four ways to set it:
 
-**1. Docstring (recommended)**
-
-```python
-class MyModule(Module):
-    """You are a helpful assistant.
-    
-    Be concise and cite sources.
-    """
-```
-
-**2. String attribute**
+**1. String attribute**
 
 ```python
 class MyModule(Module):
     system_prompt = "You are a helpful assistant."
 ```
 
-**3. File path**
+**2. File path**
 
 ```python
 from acorn import Path
@@ -341,7 +333,7 @@ class MyModule(Module):
     system_prompt = Path("prompts/assistant.md")
 ```
 
-**4. Method (dynamic)**
+**3. Method (dynamic)**
 
 ```python
 from datetime import date
@@ -351,7 +343,7 @@ class MyModule(Module):
         return f"You are a helpful assistant. Today is {date.today()}."
 ```
 
-**5. Template (Jinja2)**
+**4. Template (Jinja2)**
 
 Use `Template` for dynamic prompts with variable substitution and Jinja2 features.
 
@@ -365,6 +357,8 @@ class MyModule(Module):
     )
 ```
 
+Class docstrings are not used as prompts. A branch's docstring is its description in `branch()` discovery, and a service's docstring describes the service, so each has a single meaning. Set `system_prompt` explicitly for instructions.
+
 ### When to Use Template
 
 `Template` is a Jinja2-based prompt builder that separates prompt logic from code. Use it when you need:
@@ -373,7 +367,7 @@ class MyModule(Module):
 - **Reusability**: Share templates across modules with different variables
 - **Complex logic**: Use loops, conditionals, and filters for sophisticated prompt construction
 
-For simple static prompts, use docstrings or string attributes. For prompts that need occasional dynamic values, use methods. For prompts requiring complex logic or shared templates, use `Template`.
+For simple static prompts, use a `system_prompt` string. For prompts that need occasional dynamic values, use methods. For prompts requiring complex logic or shared templates, use `Template`.
 
 ### Template Options
 

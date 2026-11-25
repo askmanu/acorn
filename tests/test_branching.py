@@ -396,6 +396,7 @@ class TestMergeStrategies:
 
         branch_instance = MagicMock()
         branch_instance.model = "anthropic/claude-sonnet-4-5-20250514"
+        branch_instance.temperature = 0.2
         branch_instance.max_tokens = 4096
         branch_instance.history = [
             {"role": "system", "content": "Branch prompt"},
@@ -415,6 +416,7 @@ class TestMergeStrategies:
             assert "The branch verified" in content
             assert "Final result:" in content
             assert mock_completion.call_count == 1
+            assert mock_completion.call_args.kwargs["temperature"] == 0.2
 
 
 # =============================================================================

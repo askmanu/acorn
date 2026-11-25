@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "acorn"
-version = "0.8.1"
+version = "0.9.0"
 description = "LLM agent framework with structured I/O"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,9 +22,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "pydantic>=2.0",
+    "pydantic>=2.11",
+    # Newer releases (1.106+) import the optional mcp extra on tool calls, so
+    # keep this exact pin until that is fixed. 1.103.10+ knows the Claude 5.5 models.
     "litellm==1.104.8",
-    "jinja2>=3.0",
+    "jinja2>=3.1.6",
 ]
 
 [project.optional-dependencies]
